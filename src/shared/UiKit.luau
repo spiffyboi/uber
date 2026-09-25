@@ -8,8 +8,13 @@ local UserInputService = game:GetService("UserInputService")
 
 local UiKit = {}
 
-UiKit.FONT = Enum.Font.FredokaOne
-UiKit.TEXT_OUTLINE = Color3.fromRGB(20, 20, 20)
+-- Carried over from Brew a Potion!'s toolkit for the button/panel/text
+-- *mechanics* (decorate, polish, fitText, etc.), but restyled below: Cold
+-- Fare is a noir driving drama, not a bright cartoon farm, so the font and
+-- palette are its own -- a condensed sans for a dispatch-app/HUD feel, and a
+-- dark, neon-on-asphalt palette instead of candy colours.
+UiKit.FONT = Enum.Font.Oswald
+UiKit.TEXT_OUTLINE = Color3.fromRGB(10, 10, 12)
 -- Every text outline in the game (UI and world signs) is drawn at its requested
 -- thickness times this, so the whole game's outline weight is tuned here.
 UiKit.TEXT_OUTLINE_SCALE = 0.75
@@ -17,15 +22,18 @@ UiKit.TEXT_OUTLINE_SCALE = 0.75
 export type Style = { fill: Color3, outline: Color3 }
 
 UiKit.STYLES = {
-	green = { fill = Color3.fromRGB(110, 225, 40), outline = Color3.fromRGB(30, 80, 20) },
-	cyan = { fill = Color3.fromRGB(40, 205, 245), outline = Color3.fromRGB(10, 70, 110) },
-	orange = { fill = Color3.fromRGB(255, 170, 40), outline = Color3.fromRGB(115, 60, 10) },
-	purple = { fill = Color3.fromRGB(180, 110, 240), outline = Color3.fromRGB(70, 30, 110) },
-	red = { fill = Color3.fromRGB(235, 85, 85), outline = Color3.fromRGB(110, 25, 25) },
-	gray = { fill = Color3.fromRGB(130, 135, 150), outline = Color3.fromRGB(45, 48, 60) },
-	panel = { fill = Color3.fromRGB(44, 48, 74), outline = Color3.fromRGB(14, 16, 28) },
-	card = { fill = Color3.fromRGB(64, 70, 104), outline = Color3.fromRGB(22, 24, 40) },
-	gold = { fill = Color3.fromRGB(232, 185, 60), outline = Color3.fromRGB(110, 80, 20) },
+	-- GigLine's own accent (the app's UI, waypoint markers, "Accept" prompts).
+	cyan = { fill = Color3.fromRGB(45, 195, 210), outline = Color3.fromRGB(10, 55, 60) },
+	-- Fares, tips, cash-in-hand.
+	gold = { fill = Color3.fromRGB(200, 175, 90), outline = Color3.fromRGB(75, 62, 25) },
+	-- Warnings, danger, anything gang-related surfacing in the UI.
+	red = { fill = Color3.fromRGB(190, 55, 55), outline = Color3.fromRGB(70, 15, 15) },
+	orange = { fill = Color3.fromRGB(205, 120, 45), outline = Color3.fromRGB(80, 45, 15) },
+	green = { fill = Color3.fromRGB(80, 150, 70), outline = Color3.fromRGB(28, 55, 24) },
+	purple = { fill = Color3.fromRGB(120, 85, 155), outline = Color3.fromRGB(45, 30, 60) },
+	gray = { fill = Color3.fromRGB(60, 62, 70), outline = Color3.fromRGB(20, 21, 26) },
+	panel = { fill = Color3.fromRGB(18, 19, 24), outline = Color3.fromRGB(5, 5, 8) },
+	card = { fill = Color3.fromRGB(28, 30, 38), outline = Color3.fromRGB(8, 9, 13) },
 } :: { [string]: Style }
 
 function UiKit.outlineText(label: Instance, thickness: number)
