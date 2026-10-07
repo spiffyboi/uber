@@ -1,67 +1,20 @@
--- Cross streets at a couple of points along the opening strip -- the rest of
--- the strip is one continuous block of buildings with no way through, which
--- read as a movie backlot rather than an actual grid of city blocks. Each
--- intersection gets a real perpendicular street (not just a painted gap),
--- a crosswalk, four pole-mounted traffic signals that actually cycle, and
--- street-name signage at the corners. Traffic (see TrafficSpawner) only
--- ever drives the main road, so the cross streets themselves are dressing,
--- not a driveable grid -- but the signals it reads are these same ones.
-
-local CollectionService = game:GetService("CollectionService")
+-- Dresses every intersection in the grid (see StreetGrid): zebra crossings
+-- on each street meeting it, a white stop line across each approach, a
+-- traffic signal for each approach on a mast arm reaching out over its
+-- lanes (where a driver actually looks), and street-name blades on the
+-- corner. The signals show whatever StreetGrid.signalState says, which is
+-- the same thing TrafficSpawner's cars obey.
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local CityConfig = require(Shared:WaitForChild("CityConfig"))
+local StreetGrid = require(Shared:WaitForChild("StreetGrid"))
+local BuildPacer = require(script.Parent.BuildPacer)
 
 local IntersectionBuilder = {}
 
-local CROSS_STREET_NAMES = { "Delano Ave", "Kesting St" }
+local ROAD_TOP = 1
 
--- One shared signal cycle for every intersection in the scene -- they all
--- switch in lockstep. Real asynchronous timing across intersections would
--- need per-intersection state and a lot more traffic-AI complexity (yielding
--- at conflicting lights, etc.) for very little visible payoff at this scope;
--- a single shared phase still gives real stop-and-go traffic without that.
-local MAIN_GREEN_TIME = 8
-local MAIN_YELLOW_TIME = 2
-local CROSS_GREEN_TIME = 8
-local CROSS_YELLOW_TIME = 2
-local CYCLE_TIME = MAIN_GREEN_TIME + MAIN_YELLOW_TIME + CROSS_GREEN_TIME + CROSS_YELLOW_TIME
-
-local cycleStart = os.clock()
-
--- "green" | "yellow" | "red", read by TrafficSpawner for the main road, and
--- by this module's own signal-head repaint loop for both roads.
-local function mainRoadState(): string
-	local t = (os.clock() - cycleStart) % CYCLE_TIME
-	if t < MAIN_GREEN_TIME then
-		return "green"
-	elseif t < MAIN_GREEN_TIME + MAIN_YELLOW_TIME then
-		return "yellow"
-	else
-		return "red"
-	end
-end
-
-local function crossStreetState(): string
-	local t = (os.clock() - cycleStart) % CYCLE_TIME
-	local crossStart = MAIN_GREEN_TIME + MAIN_YELLOW_TIME
-	if t < crossStart then
-		return "red"
-	elseif t < crossStart + CROSS_GREEN_TIME then
-		return "green"
-	else
-		return "yellow"
-	end
-end
-
--- Read by TrafficSpawner: which state the main-road signal nearest `z`
--- currently shows, so a car approaching that intersection knows whether to
--- keep going or slow to a stop at the line.
-function IntersectionBuilder.getMainRoadState(): string
-	return mainRoadState()
-end
-
-local function part(name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?): Part
+local function part(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?): Part
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
@@ -71,178 +24,195 @@ local function part(name: string, size: Vector3, cframe: CFrame, color: Color3, 
 	p.Anchored = true
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = parent
 	return p
 end
 
--- A single red/yellow/green lens stack, mounted on `pole` facing `facing`
--- (a unit -Z-relative look direction achieved via the pole's own CFrame), and
--- registered so the repaint loop below can keep its lit lens in sync with
--- whichever `stateFn` it was built to watch (mainRoadState or
--- crossStreetState -- different corners of the same intersection watch
--- different roads).
-local signalHeads: { { lenses: { red: BasePart, yellow: BasePart, green: BasePart }, stateFn: () -> string } } = {}
-
--- `groundPosition`'s Y is ignored -- the pole always plants its own base at
--- Y=0 and builds upward, so every call site only has to know the ground
--- (X, Z) spot to stand it on, not the pole's own half-height math.
-local function buildSignalHead(root: Instance, groundPosition: Vector3, facing: CFrame, stateFn: () -> string)
-	local POLE_HEIGHT = 11
-	local base = Vector3.new(groundPosition.X, 0, groundPosition.Z)
-
-	local pole = part("SignalPole", Vector3.new(0.6, POLE_HEIGHT, 0.6), CFrame.new(base + Vector3.new(0, POLE_HEIGHT / 2, 0)) * facing, Color3.fromRGB(25, 25, 28), Enum.Material.SmoothPlastic)
-	pole.Parent = root
-
-	local housing = part("SignalHousing", Vector3.new(0.9, 2.4, 0.7), CFrame.new(base + Vector3.new(0, POLE_HEIGHT - 1.5, 0)) * facing, Color3.fromRGB(15, 15, 17), Enum.Material.SmoothPlastic)
-	housing.Parent = root
-
-	local lenses = {}
-	local order = { { key = "red", color = Color3.fromRGB(230, 40, 40), y = 0.75 }, { key = "yellow", color = Color3.fromRGB(235, 195, 40), y = 0 }, { key = "green", color = Color3.fromRGB(50, 210, 90), y = -0.75 } }
-	for _, lens in order do
-		local bulb = Instance.new("Part")
-		bulb.Name = "Lens_" .. lens.key
-		bulb.Shape = Enum.PartType.Ball
-		bulb.Size = Vector3.new(0.45, 0.45, 0.45)
-		bulb.Color = lens.color
-		bulb.Material = Enum.Material.SmoothPlastic
-		bulb.CanCollide = false
-		bulb.Anchored = true
-		bulb.CFrame = housing.CFrame * CFrame.new(0, lens.y, -0.4)
-		bulb.Parent = root
-		lenses[lens.key] = bulb
-	end
-
-	table.insert(signalHeads, { lenses = lenses, stateFn = stateFn })
+local function paint(parent: Instance, name: string, size: Vector3, position: Vector3)
+	local p = part(parent, name, size, CFrame.new(position), Color3.fromRGB(210, 210, 200))
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	return p
 end
 
--- Repaints every signal head's lit lens (Neon + a short-range glow while
--- active, plain SmoothPlastic and dark while not) to match its own state
--- function. One shared loop for every head in the scene rather than a
--- per-head loop, since they're all just reading the same couple of clocks.
+-- Lens colours lit and unlit (unlit is the same glass, dark).
+local LENSES = {
+	{ key = "red", lit = Color3.fromRGB(255, 45, 40), dark = Color3.fromRGB(60, 16, 14), y = 1 },
+	{ key = "yellow", lit = Color3.fromRGB(255, 190, 40), dark = Color3.fromRGB(60, 46, 12), y = 0 },
+	{ key = "green", lit = Color3.fromRGB(40, 235, 120), dark = Color3.fromRGB(12, 54, 30), y = -1 },
+}
+
+type Head = { node: StreetGrid.Node, axis: string, lenses: { [string]: BasePart }, shown: string? }
+local heads: { Head } = {}
+
+local function streetSign(parent: Instance, cframe: CFrame, text: string)
+	local blade = part(parent, "StreetSign", Vector3.new(5, 0.8, 0.12), cframe, Color3.fromRGB(20, 90, 60))
+	blade.CanCollide = false
+	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = face
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 40
+		gui.LightInfluence = 0.4
+		gui.MaxDistance = 250
+		gui.Parent = blade
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.Oswald
+		label.Text = text:upper()
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.TextScaled = true
+		label.Parent = gui
+	end
+end
+
+-- A signal for traffic arriving at `node` heading `heading`: a pole on the
+-- far right-hand corner, an arm out over the approach's lanes, and the
+-- lamp hanging from it facing the oncoming cars.
+local function buildSignal(parent: Instance, node: StreetGrid.Node, heading: Vector3, farSideOpen: boolean)
+	local axis = StreetGrid.axisOf(heading)
+	local right = StreetGrid.rightOf(heading)
+	local approachHalfWidth = if axis == "avenue" then CityConfig.ROAD_WIDTH / 2 else CityConfig.CROSS_STREET_WIDTH / 2
+	local otherHalfWidth = if axis == "avenue" then CityConfig.CROSS_STREET_WIDTH / 2 else CityConfig.ROAD_WIDTH / 2
+	-- Past the far crosswalk if there's a street on the far side; on the
+	-- sidewalk right behind the junction if it's a T.
+	local along = if farSideOpen then otherHalfWidth + 8 else otherHalfWidth + 3
+	local poleOut = approachHalfWidth + 2.5
+	local base = node.position + heading * along + right * poleOut
+
+	local metal = Color3.fromRGB(28, 30, 32)
+	local poleHeight = 17
+	part(parent, "SignalPole", Vector3.new(0.7, poleHeight, 0.7), CFrame.new(base + Vector3.new(0, ROAD_TOP + poleHeight / 2, 0)), metal)
+
+	-- The arm reaches back over the lanes to about the middle of them.
+	local armLength = poleOut - approachHalfWidth / 2
+	local armY = ROAD_TOP + poleHeight - 0.6
+	local armMid = base - right * (armLength / 2) + Vector3.new(0, armY, 0)
+	part(parent, "SignalArm", Vector3.new(0.4, 0.4, armLength), CFrame.lookAt(armMid, armMid + right), metal)
+
+	-- Facing back toward the cars it's for.
+	local headCenter = base - right * armLength + Vector3.new(0, armY - 2.4, 0)
+	local facing = CFrame.lookAt(headCenter, headCenter - heading)
+	part(parent, "SignalHanger", Vector3.new(0.2, 0.8, 0.2), CFrame.new(headCenter + Vector3.new(0, 2.2, 0)), metal)
+	part(parent, "SignalBackplate", Vector3.new(2.3, 4.2, 0.1), facing * CFrame.new(0, 0, 0.55), Color3.fromRGB(14, 14, 16))
+	part(parent, "SignalHousing", Vector3.new(1.4, 3.6, 1), facing, Color3.fromRGB(30, 30, 20))
+
+	local lenses = {}
+	for _, lens in LENSES do
+		local bulb = part(parent, "Lens_" .. lens.key, Vector3.new(0.2, 0.95, 0.95), facing * CFrame.new(0, lens.y * 1.12, -0.52) * CFrame.Angles(0, math.rad(90), 0), lens.dark)
+		bulb.Shape = Enum.PartType.Cylinder
+		bulb.CanCollide = false
+		bulb.CastShadow = false
+		local visor = part(parent, "Visor", Vector3.new(1.1, 0.1, 0.5), facing * CFrame.new(0, lens.y * 1.12 + 0.52, -0.75), Color3.fromRGB(30, 30, 20))
+		visor.CanCollide = false
+		visor.CastShadow = false
+		lenses[lens.key] = bulb
+	end
+	table.insert(heads, { node = node, axis = axis, lenses = lenses })
+	return base
+end
+
+-- Zebra stripes across a street meeting the junction. `center` is the
+-- middle of the crossing, `across` the unit direction to walk it,
+-- `width` the street's width.
+local function crosswalk(parent: Instance, center: Vector3, across: Vector3, width: number)
+	local along = Vector3.yAxis:Cross(across)
+	local count = math.floor(width / 3.5)
+	for k = 0, count - 1 do
+		local offset = (k - (count - 1) / 2) * 3.5
+		local p = center + across * offset + Vector3.new(0, ROAD_TOP + 0.03, 0)
+		local stripe = paint(parent, "Crosswalk", Vector3.new(1.6, 0.05, 4.5), p)
+		stripe.CFrame = CFrame.lookAt(p, p + along)
+	end
+end
+
+local function compass(heading: Vector3): string
+	if heading.X > 0.5 then
+		return "E"
+	elseif heading.X < -0.5 then
+		return "W"
+	end
+	return if heading.Z > 0 then "N" else "S"
+end
+
+local function buildIntersection(parent: Instance, node: StreetGrid.Node)
+	local folder = Instance.new("Folder")
+	folder.Name = "Intersection_" .. node.key
+	folder.Parent = parent
+
+	local exits = StreetGrid.exits(node)
+	local open: { [string]: boolean } = {}
+	for _, exit in exits do
+		open[compass(exit.heading)] = true
+	end
+
+	for _, exit in exits do
+		local axis = StreetGrid.axisOf(exit.heading)
+		local width = if axis == "avenue" then CityConfig.ROAD_WIDTH else CityConfig.CROSS_STREET_WIDTH
+		local otherHalf = if axis == "avenue" then CityConfig.CROSS_STREET_WIDTH / 2 else CityConfig.ROAD_WIDTH / 2
+		local right = StreetGrid.rightOf(exit.heading)
+		crosswalk(folder, node.position + exit.heading * (otherHalf + 3.5), right, width)
+
+		if node.hasSignals then
+			-- The approach that arrives along this street (driving the other
+			-- way, toward the node): its stop line, and its signal across the
+			-- junction.
+			local inbound = -exit.heading
+			local inboundRight = StreetGrid.rightOf(inbound)
+			local stopAt = node.position + exit.heading * (StreetGrid.stopDistance(axis) - 0.5) + inboundRight * (width / 4)
+			local line = paint(folder, "StopLine", Vector3.new(width / 2 - 1, 0.05, 0.8), stopAt + Vector3.new(0, ROAD_TOP + 0.03, 0))
+			line.CFrame = CFrame.lookAt(line.Position, line.Position + inbound)
+
+			local farOpen = open[compass(inbound)] == true
+			local poleBase = buildSignal(folder, node, inbound, farOpen)
+
+			-- Street names on the avenue approaches' poles: each blade runs
+			-- parallel to the street it names, reaching in toward the
+			-- junction.
+			if axis == "avenue" then
+				local signAt = poleBase + Vector3.new(0, ROAD_TOP + 9.5, 0)
+				local toNode = node.position - poleBase
+				local alongAvenue = Vector3.new(0, 0, math.sign(toNode.Z))
+				local alongCross = Vector3.new(math.sign(toNode.X), 0, 0)
+				streetSign(folder, CFrame.fromMatrix(signAt + alongAvenue * 2.6, Vector3.zAxis, Vector3.yAxis), CityConfig.AVENUES[node.i].name)
+				streetSign(folder, CFrame.fromMatrix(signAt + Vector3.new(0, -0.9, 0) + alongCross * 2.6, Vector3.xAxis, Vector3.yAxis), CityConfig.CROSS_STREETS[node.j].name)
+			end
+		end
+	end
+end
+
+-- Repaints each signal's lit lens when its state changes (only then, so
+-- nothing is sent to players between changes).
 local function startSignalLoop()
 	task.spawn(function()
 		while true do
-			for _, head in signalHeads do
-				local active = head.stateFn()
-				for key, bulb in head.lenses do
-					local isLit = key == active
-					bulb.Material = if isLit then Enum.Material.Neon else Enum.Material.SmoothPlastic
-					local light = bulb:FindFirstChildOfClass("PointLight")
-					if isLit and not light then
-						light = Instance.new("PointLight")
-						light.Range = 8
-						light.Brightness = 1.2
-						light.Parent = bulb
-					end
-					if light then
-						light.Enabled = isLit
-						light.Color = bulb.Color
+			for _, head in heads do
+				local state = StreetGrid.signalState(head.node, head.axis)
+				if state ~= head.shown then
+					head.shown = state
+					for _, lens in LENSES do
+						local bulb = head.lenses[lens.key]
+						local isLit = lens.key == state
+						bulb.Color = if isLit then lens.lit else lens.dark
+						bulb.Material = if isLit then Enum.Material.Neon else Enum.Material.SmoothPlastic
 					end
 				end
 			end
-			task.wait(0.25)
+			task.wait(0.2)
 		end
 	end)
 end
 
--- White zebra-stripe crosswalk across `width` studs of road, centred on
--- `center`, striping along `axis` ("x" for a crossing that runs along X --
--- i.e. painted across a road that runs along Z -- or "z" for the reverse).
-local function buildCrosswalk(root: Instance, center: Vector3, width: number, axis: "x" | "z")
-	local stripeCount = math.floor(width / 3)
-	for i = 0, stripeCount - 1 do
-		local offset = -width / 2 + 1.5 + i * 3
-		local size = if axis == "x" then Vector3.new(1.2, 0.05, 4) else Vector3.new(4, 0.05, 1.2)
-		-- Road/CrossStreet slabs are 1 stud thick centred at Y=0.5 (top face
-		-- at Y=1) -- stripes sit just above that top face, not at Y=0.53
-		-- (which would bury them inside the asphalt, invisible).
-		local pos = if axis == "x" then center + Vector3.new(offset, 1.03, 0) else center + Vector3.new(0, 1.03, offset)
-		local stripe = part("CrosswalkStripe", size, CFrame.new(pos), Color3.fromRGB(210, 210, 200), Enum.Material.SmoothPlastic)
-		stripe.CanCollide = false
-		stripe.Parent = root
-	end
-end
-
--- A small green NYC-style street-name blade, mounted just under a signal
--- pole's housing so each corner reads which two streets actually cross here.
-local function buildStreetSign(root: Instance, position: Vector3, facing: CFrame, text: string)
-	local blade = part("StreetSign", Vector3.new(3.2, 0.6, 0.1), CFrame.new(position) * facing, Color3.fromRGB(20, 90, 60), Enum.Material.SmoothPlastic)
-	blade.Parent = root
-
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Front
-	gui.PixelsPerStud = 40
-	gui.Parent = blade
-
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.Font = Enum.Font.Oswald
-	label.Text = text:upper()
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.TextScaled = true
-	label.Parent = gui
-end
-
-local function buildIntersection(root: Instance, z: number, crossName: string)
-	local halfMain = CityConfig.ROAD_WIDTH / 2
-	local halfCross = CityConfig.CROSS_STREET_WIDTH / 2
-
-	-- The cross street itself: a perpendicular strip of asphalt punched
-	-- through the building row (see OpeningSetBuilder.buildBuildingRow,
-	-- which leaves this exact block index empty), plus its own short
-	-- sidewalks and kerb-to-kerb crosswalks on both roads.
-	local crossRoad = part(
-		"CrossStreet",
-		Vector3.new(CityConfig.CROSS_STREET_HALF_LENGTH * 2 + CityConfig.ROAD_WIDTH, 1, CityConfig.CROSS_STREET_WIDTH),
-		CFrame.new(0, 0.5, z),
-		Color3.fromRGB(35, 35, 38),
-		Enum.Material.Asphalt
-	)
-	crossRoad.Parent = root
-
-	-- Sidewalks flanking the cross street's own two outward stubs (west and
-	-- east of the main road), one on each side of it -- the same pattern
-	-- buildRoad uses for the main road's own sidewalks, just rotated: a
-	-- stub's length runs along X here instead of Z.
-	local stubLength = CityConfig.CROSS_STREET_HALF_LENGTH - halfMain
-	for stubSide = -1, 1, 2 do
-		local stubCenterX = stubSide * (halfMain + stubLength / 2)
-		for flank = -1, 1, 2 do
-			local stub = part(
-				"CrossSidewalk",
-				Vector3.new(stubLength, 1.2, CityConfig.SIDEWALK_WIDTH),
-				CFrame.new(stubCenterX, 0.6, z + flank * (halfCross + CityConfig.SIDEWALK_WIDTH / 2)),
-				Color3.fromRGB(90, 90, 92),
-				Enum.Material.Concrete
-			)
-			stub.Parent = root
-		end
-	end
-
-	buildCrosswalk(root, Vector3.new(0, 0, z - halfCross - 3), CityConfig.ROAD_WIDTH, "x")
-	buildCrosswalk(root, Vector3.new(0, 0, z + halfCross + 3), CityConfig.ROAD_WIDTH, "x")
-	buildCrosswalk(root, Vector3.new(halfMain + 3, 0, z), CityConfig.CROSS_STREET_WIDTH, "z")
-	buildCrosswalk(root, Vector3.new(-halfMain - 3, 0, z), CityConfig.CROSS_STREET_WIDTH, "z")
-
-	-- Main-road signals: mounted just past the intersection on the exit
-	-- side, facing back at the traffic approaching it (the standard "you see
-	-- it beyond the crosswalk" placement), so TrafficSpawner's cars have
-	-- something to actually be stopping for in frame, not behind them.
-	buildSignalHead(root, Vector3.new(halfMain + 1.5, 0, z - halfCross - 6), CFrame.Angles(0, math.pi, 0), mainRoadState)
-	buildSignalHead(root, Vector3.new(-halfMain - 1.5, 0, z + halfCross + 6), CFrame.new(), mainRoadState)
-
-	-- Cross-street signals: decorative (no AI drives the cross street this
-	-- pass) but real, cycling opposite the main road's own state.
-	buildSignalHead(root, Vector3.new(halfMain + halfCross + 6, 0, halfCross + z + 1.5), CFrame.Angles(0, -math.pi / 2, 0), crossStreetState)
-	buildSignalHead(root, Vector3.new(-halfMain - halfCross - 6, 0, -halfCross + z - 1.5), CFrame.Angles(0, math.pi / 2, 0), crossStreetState)
-
-	buildStreetSign(root, Vector3.new(halfMain + 2.5, 8.4, z - halfCross - 6), CFrame.Angles(0, math.pi, 0), CityConfig.DISTRICT_NICKNAME .. " St")
-	buildStreetSign(root, Vector3.new(halfMain + 2.2, 7.6, z - halfCross - 6), CFrame.Angles(0, math.pi, 0), crossName)
-end
-
 function IntersectionBuilder.build(root: Instance)
-	for i, z in CityConfig.INTERSECTION_Z do
-		buildIntersection(root, z, CROSS_STREET_NAMES[i] or "Side St")
+	local folder = Instance.new("Folder")
+	folder.Name = "Intersections"
+	folder.Parent = root
+	for _, node in StreetGrid.allNodes() do
+		BuildPacer.breathe()
+		buildIntersection(folder, node)
 	end
 	startSignalLoop()
 end

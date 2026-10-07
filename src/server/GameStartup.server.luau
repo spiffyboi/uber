@@ -25,6 +25,10 @@ TaxiOfficeBuilder.build()
 PedestrianSpawner.build()
 TrafficSpawner.build()
 
+-- The loading screen (ReplicatedFirst/LoadingScreen.client.luau) holds
+-- until it sees this.
+workspace:SetAttribute("WorldReady", true)
+
 -- The world is fully built now -- safe to let characters spawn. Anyone who
 -- connected while auto-load was off (the common case in Studio, where the
 -- test player is already in Players:GetPlayers() by this point) needs their

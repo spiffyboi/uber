@@ -29,7 +29,7 @@ local CLOTHING_COLORS = {
 	Color3.fromRGB(60, 58, 68),
 }
 
-local PEDESTRIAN_COUNT = 8
+local PEDESTRIAN_COUNT = 26
 local WALK_SPEED = 7
 local LANE_LENGTH = 45
 
@@ -134,27 +134,76 @@ function PedestrianSpawner.build()
 	root.Name = "Pedestrians"
 	root.Parent = workspace
 
-	local edge = CityConfig.ROAD_WIDTH / 2 + CityConfig.SIDEWALK_WIDTH / 2
-	local spanStart = 15
-	local spanEnd = -CityConfig.ROAD_LENGTH + 40
+	-- A walk along the middle of an avenue sidewalk, away from the kerb
+	-- clutter (streetlights, hydrants) and the shopfronts.
+	local walkOut = CityConfig.ROAD_WIDTH / 2 + 5
+
+	-- True if a walk from z1 to z2 on `side` of the avenue at `x` would cross
+	-- a taxi rank, where cabs park right across the sidewalk line (confirmed
+	-- live: a pedestrian paced back and forth straight into the player's
+	-- parked cab).
+	local function crossesRank(x: number, side: number, z1: number, z2: number): boolean
+		for _, lot in CityConfig.LOTS do
+			if lot.kind == "taxiRank" and lot.x == x and lot.side == side then
+				local near, far = CityConfig.lotZRange(lot)
+				if math.max(z1, z2) > far and math.min(z1, z2) < near then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	-- Every stretch of avenue sidewalk between two cross streets, either
+	-- side, as a candidate walk -- spread round the whole grid, busiest on
+	-- Marrow St where the player starts.
+	local walks = {}
+	for _, avenue in CityConfig.AVENUES do
+		for c = 1, #CityConfig.CROSS_STREETS - 1 do
+			local top = CityConfig.CROSS_STREETS[c].z - CityConfig.CROSS_BUILDING_EDGE - 4
+			local bottom = CityConfig.CROSS_STREETS[c + 1].z + CityConfig.CROSS_BUILDING_EDGE + 4
+			for side = -1, 1, 2 do
+				local tries = if avenue.x == CityConfig.MAIN_AVENUE_X then 2 else 1
+				-- A second walker on the same stretch keeps to a different
+				-- line, so the two don't walk into each other.
+				for k = 1, tries do
+					local length = math.min(LANE_LENGTH, top - bottom)
+					local z1 = top - math.random() * (top - bottom - length)
+					local z2 = z1 - length
+					if not crossesRank(avenue.x, side, z1, z2) then
+						table.insert(walks, { x = avenue.x + side * (walkOut + (k - 1) * 3), z1 = z1, z2 = z2 })
+					end
+				end
+			end
+		end
+	end
 
 	for i = 1, PEDESTRIAN_COUNT do
-		local side = if i % 2 == 0 then -1 else 1
-		local laneZ = spanStart + (spanEnd - spanStart) * ((i - 0.5) / PEDESTRIAN_COUNT)
-		local x = side * edge
+		if #walks == 0 then
+			break
+		end
+		local walk = table.remove(walks, math.random(1, #walks))
 
 		local pedestrian = Players:CreateHumanoidModelFromDescription(buildPedestrianDescription(), Enum.HumanoidRigType.R15)
 		pedestrian.Name = "Pedestrian" .. i
+		-- The rig's scaling records are only needed while it's being built;
+		-- dropping them trims ~80 objects off each walker.
+		for _, descendant in pedestrian:GetDescendants() do
+			if descendant:IsA("ValueBase") then
+				descendant:Destroy()
+			end
+		end
 		pedestrian.Parent = root
 
 		local humanoid = pedestrian:FindFirstChildOfClass("Humanoid") :: Humanoid
 		humanoid.WalkSpeed = WALK_SPEED
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 
 		loadWalkTrack(humanoid)
 
-		local fromPos = Vector3.new(x, 1.2, laneZ - LANE_LENGTH / 2)
-		local toPos = Vector3.new(x, 1.2, laneZ + LANE_LENGTH / 2)
-		pedestrian:PivotTo(CFrame.lookAt(fromPos, toPos))
+		local fromPos = Vector3.new(walk.x, 1.2, walk.z1)
+		local toPos = Vector3.new(walk.x, 1.2, walk.z2)
+		pedestrian:PivotTo(CFrame.lookAt(fromPos, toPos) + Vector3.new(0, 3, 0))
 
 		loopWalk(pedestrian, humanoid, fromPos, toPos)
 	end

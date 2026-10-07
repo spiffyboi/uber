@@ -327,6 +327,14 @@ end
 -- ===== The sequence =====
 
 local function run()
+	-- Not until the loading screen's finished: it holds until the city, the
+	-- cab and this office are all actually loaded, and fades to black to
+	-- hand over -- starting before that is how the opening used to get
+	-- lost behind things still loading in.
+	while not player:GetAttribute("LoadingScreenDone") do
+		player:GetAttributeChangedSignal("LoadingScreenDone"):Wait()
+	end
+
 	local character = player.Character or player.CharacterAdded:Wait()
 	local car, chassis, seat = waitForCar()
 	local gpsUnit = car:WaitForChild("GpsUnit") :: BasePart
@@ -560,6 +568,9 @@ local function run()
 	-- starting now.
 	cameraGuard:Disconnect()
 	CarSystems.start(car, chassis, seat, gpsScreen, character, hideConnection)
+	-- The phone, minimap and navigation (see Hud) come up from here on, and
+	-- getting back in the cab later is CarReentry's job.
+	player:SetAttribute("IntroDone", true)
 
 	if ambience.SoundId ~= "rbxassetid://0" then
 		TweenService:Create(ambience, TweenInfo.new(2), { Volume = 0 }):Play()

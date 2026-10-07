@@ -79,6 +79,126 @@ local function rigMeshToChassis(mesh: Instance, chassis: BasePart)
 	end
 end
 
+local liteTemplate: Model? = nil
+
+-- The same cab with only the outside left: every part that can be seen from
+-- some angle outside the car, found by casting a dome of parallel rays at
+-- it and keeping whatever each ray hits first. The full mesh is ~740 parts,
+-- most of them interior (seats, dash, pedals, door cards); this keeps ~210.
+-- Measured live: fourteen full-detail cabs in traffic were costing about two
+-- thirds of every frame (12 fps with them, 40 without). Its glass is tinted
+-- dark so the missing interior just reads as night through the windows.
+--
+-- Laid out facing -Z with its tyres on Y = 0, centred on the origin. Its
+-- PrimaryPart "Root" sits where the collision box for a cab this size
+-- belongs; the box's size is in the "BoxSize" attribute. Kept in
+-- ReplicatedStorage so clients can draw traffic from it (see
+-- TrafficVisuals).
+function CarBuilder.getLiteTemplate(): Model
+	if liteTemplate then
+		return liteTemplate
+	end
+
+	local mesh = getTaxiMeshTemplate():Clone()
+	-- Raycasting needs it in the world; far off out of the way. The mesh's
+	-- own front is its local +Z (see CarBuilder.build), hence the half turn.
+	mesh:PivotTo(CFrame.new(0, 2000, 0) * CFrame.Angles(0, math.pi, 0))
+	mesh.Parent = workspace
+	local boxCFrame, size = mesh:GetBoundingBox()
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { mesh }
+	local seen: { [Instance]: boolean } = {}
+	local reach = size.Magnitude
+	for elevation = -5, 80, 12 do
+		for azimuth = 0, 359, 15 do
+			local direction = (CFrame.Angles(0, math.rad(azimuth), 0) * CFrame.Angles(math.rad(-elevation), 0, 0)).LookVector
+			local eye = CFrame.lookAt(boxCFrame.Position - direction * reach, boxCFrame.Position)
+			for i = -10, 10 do
+				for j = -10, 10 do
+					local origin = (eye * CFrame.new(i / 10 * reach / 2, j / 10 * reach / 2, 0)).Position
+					local result = workspace:Raycast(origin, direction * reach * 2, params)
+					if result then
+						seen[result.Instance] = true
+					end
+				end
+			end
+		end
+	end
+
+	for _, descendant in mesh:GetDescendants() do
+		if descendant.Parent == nil then
+			continue
+		end
+		if descendant:IsA("BasePart") and not seen[descendant] then
+			descendant:Destroy()
+		elseif descendant:IsA("Light") or descendant:IsA("Camera") or descendant:IsA("BaseScript") then
+			descendant:Destroy()
+		end
+	end
+
+	local model = Instance.new("Model")
+	model.Name = "TaxiLite"
+	mesh.Parent = model
+	mesh:PivotTo(mesh:GetPivot() - Vector3.new(boxCFrame.Position.X, boxCFrame.Position.Y - size.Y / 2, boxCFrame.Position.Z))
+	for _, descendant in mesh:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+			descendant.Massless = true
+			if descendant.Transparency > 0.3 and descendant.Transparency < 1 then
+				descendant.Transparency = 0.25
+				descendant.Color = Color3.fromRGB(15, 18, 24)
+			end
+			-- The cab-yellow body panels, which traffic repaints for cars
+			-- that aren't cabs (see TrafficVisuals).
+			local color = descendant.Color
+			if color.R > 0.9 and color.G > 0.6 and color.G < 0.75 and color.B < 0.1 then
+				descendant:SetAttribute("Body", true)
+			end
+		end
+	end
+
+	local boxSize = size * Vector3.new(0.9, 0.5, 0.95)
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(0.2, 0.2, 0.2)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanTouch = false
+	root.CanQuery = false
+	root.CFrame = CFrame.new(0, 0.4 + boxSize.Y / 2, 0)
+	root.Parent = model
+	model.PrimaryPart = root
+	model:SetAttribute("BoxSize", boxSize)
+
+	liteTemplate = model
+	return model
+end
+
+-- A parked, non-drivable cab for set dressing (other drivers' cabs waiting
+-- at a taxi rank): the lightweight cab, anchored where it stands, colliding
+-- only through one invisible box. `groundPosition` is the point on the
+-- ground under the cab's centre; `yaw` turns it (0 = facing -Z, the same way
+-- the player's cab and outbound traffic face).
+function CarBuilder.buildParkedTaxi(groundPosition: Vector3, yaw: number): Model
+	local template = CarBuilder.getLiteTemplate()
+	local model = template:Clone()
+	model.Name = "ParkedTaxi"
+	model:PivotTo(CFrame.new(groundPosition) * CFrame.Angles(0, yaw, 0) * template:GetPivot())
+
+	local box = model.PrimaryPart :: BasePart
+	box.Name = "Collision"
+	box.Size = template:GetAttribute("BoxSize")
+	box.CanCollide = true
+	box.CanQuery = true
+	return model
+end
+
 -- `cframe` is where the driver's seat (and so the car) starts out.
 function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	local model = Instance.new("Model")
@@ -312,6 +432,48 @@ function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	ignitionPrompt.RequiresLineOfSight = false
 	ignitionPrompt.MaxActivationDistance = 8
 	ignitionPrompt.Parent = ignitionKey
+
+	-- Getting back in: a prompt at the driver's door (the cabin's -X side,
+	-- the same side the player gets out on -- see CarSystems), shown only
+	-- while nobody's in the driver's seat (CarSpawner switches it).
+	local driverDoor = Instance.new("Part")
+	driverDoor.Name = "DriverDoor"
+	driverDoor.Size = Vector3.new(0.2, 0.2, 0.2)
+	driverDoor.Transparency = 1
+	driverDoor.CanCollide = false
+	driverDoor.CanQuery = false
+	driverDoor.CanTouch = false
+	driverDoor.Massless = true
+	driverDoor.CFrame = seat.CFrame * CFrame.new(-(chassis.Size.X / 2 + 0.3), 1.2, 0)
+	driverDoor.Parent = model
+	weld(chassis, driverDoor)
+
+	local enterPrompt = Instance.new("ProximityPrompt")
+	enterPrompt.Name = "EnterPrompt"
+	enterPrompt.ActionText = "Get in"
+	enterPrompt.ObjectText = "Your cab"
+	enterPrompt.HoldDuration = 0
+	enterPrompt.ClickablePrompt = true
+	enterPrompt.RequiresLineOfSight = false
+	enterPrompt.MaxActivationDistance = 10
+	enterPrompt.Enabled = false
+	enterPrompt.Parent = driverDoor
+
+	-- Where fares ride: the back seat, kerb side. Only ever sat in by
+	-- FareService putting a passenger there -- CanTouch off so nobody gets
+	-- pulled into it just by brushing the cab.
+	local passengerSeat = Instance.new("Seat")
+	passengerSeat.Name = "PassengerSeat"
+	passengerSeat.Size = Vector3.new(1.6, 0.4, 1.6)
+	passengerSeat.Transparency = 1
+	passengerSeat.CanCollide = false
+	passengerSeat.CanTouch = false
+	passengerSeat.Massless = true
+	-- Lower than the driver's seat: level with it, a seated passenger's
+	-- head came up through this tall wagon's roof (measured live).
+	passengerSeat.CFrame = seat.CFrame * CFrame.new(1.1, -0.9, 3)
+	passengerSeat.Parent = model
+	weld(chassis, passengerSeat)
 
 	-- CarController finds every player car this way, so it doesn't need to
 	-- know anything about how or where CarSpawner keeps track of them.

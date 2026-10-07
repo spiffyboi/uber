@@ -65,23 +65,42 @@ local function spawnCar(player: Player): Model
 	-- steering column (see CarBuilder), not a dash-screen button -- fires
 	-- straight into the seat here rather than routing through a remote,
 	-- since ProximityPrompt.Triggered already fires server-side on its own.
+	local seat = car:WaitForChild("DriveSeat") :: VehicleSeat
 	local ignitionKey = car:WaitForChild("IgnitionKey")
 	local ignitionPrompt = ignitionKey:WaitForChild("IgnitionPrompt") :: ProximityPrompt
+	local enterPrompt = car:WaitForChild("DriverDoor"):WaitForChild("EnterPrompt") :: ProximityPrompt
+
+	-- Which prompt shows when: the key only for someone in the driver's
+	-- seat with the engine off (confirmed live it otherwise popped up for
+	-- anyone walking past a parked cab), and "Get in" only while the seat's
+	-- empty. Decided here, server-side, the moment either changes -- the
+	-- user reported the key prompt staying up once the engine was running
+	-- when this was left to the client alone.
+	local function refreshPrompts()
+		ignitionPrompt.Enabled = seat.Occupant ~= nil and seat.Disabled
+		enterPrompt.Enabled = seat.Occupant == nil
+	end
+	seat:GetPropertyChangedSignal("Occupant"):Connect(refreshPrompts)
+	seat:GetPropertyChangedSignal("Disabled"):Connect(refreshPrompts)
+	refreshPrompts()
+
 	ignitionPrompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= player then
 			return
 		end
-		local seat = car:FindFirstChild("DriveSeat") :: VehicleSeat?
-		if seat then
-			seat.Disabled = false
+		seat.Disabled = false
+	end)
+
+	-- Getting back in after getting out: the owner only, alive and on foot.
+	enterPrompt.Triggered:Connect(function(triggeringPlayer)
+		if triggeringPlayer ~= player or seat.Occupant ~= nil then
+			return
 		end
-		-- Disabled here too, not just reactively on the client (CarSystems'
-		-- own `setIgnition`) -- the user reported the prompt staying up even
-		-- once the engine was running. Setting it here, server-side, the
-		-- instant it's actually triggered is the authoritative fix; the
-		-- client-side toggle stays as a second path that also catches
-		-- `Disabled` changing some other way.
-		ignitionPrompt.Enabled = false
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 and humanoid.SeatPart == nil then
+			seat:Sit(humanoid)
+		end
 	end)
 
 	return car
@@ -99,7 +118,13 @@ local function onCharacterAdded(player: Player, character: Model)
 	seat:Sit(humanoid)
 end
 
-Players.PlayerAdded:Connect(function(player)
+local handled: { [Player]: boolean } = {}
+
+local function onPlayerAdded(player: Player)
+	if handled[player] then
+		return
+	end
+	handled[player] = true
 	spawnCar(player)
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
@@ -107,7 +132,16 @@ Players.PlayerAdded:Connect(function(player)
 	if player.Character then
 		onCharacterAdded(player, player.Character)
 	end
-end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+-- Anyone who joined before this script got going. Confirmed live: in a
+-- Studio test the player can already be in the game by the time this line
+-- runs (the city build at startup holds up the other server scripts), and
+-- they were left standing in the street with no cab at all.
+for _, player in Players:GetPlayers() do
+	task.spawn(onPlayerAdded, player)
+end
 
 Players.PlayerRemoving:Connect(function(player)
 	local car = cars[player]
@@ -115,6 +149,7 @@ Players.PlayerRemoving:Connect(function(player)
 		car:Destroy()
 		cars[player] = nil
 	end
+	handled[player] = nil
 end)
 
 -- Fired as part of CarSystems' space-bar exit sequence, so the car goes back
@@ -127,9 +162,5 @@ stopEngineRemote.OnServerEvent:Connect(function(player)
 	local seat = car:FindFirstChild("DriveSeat") :: VehicleSeat?
 	if seat then
 		seat.Disabled = true
-	end
-	local ignitionPrompt = car:FindFirstChild("IgnitionKey") and car.IgnitionKey:FindFirstChild("IgnitionPrompt") :: ProximityPrompt?
-	if ignitionPrompt then
-		ignitionPrompt.Enabled = true
 	end
 end)

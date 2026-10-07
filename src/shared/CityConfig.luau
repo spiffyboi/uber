@@ -24,48 +24,79 @@ CityConfig.APP_NAME = "GigLine"
 -- intro cutscene's dispatch call and CarBuilder's cab livery.
 CityConfig.TAXI_COMPANY_NAME = "Marrow Cab Co."
 
--- Layout of the opening strip (OpeningSetBuilder) that both it and anything
--- spawning a car onto the road (CarSpawner, TrafficSpawner) need to agree on.
--- The road runs along -Z from the steam grate at the start. Four lanes wide
--- (two each direction) rather than the original single-strip two-lane road --
--- widened for real two-way traffic (see TrafficSpawner) with room to actually
--- pass, not just a taxi-width strip.
+-- Street dimensions that everything building or driving on the streets
+-- (OpeningSetBuilder, DistrictBuilder, CarSpawner, TrafficSpawner) needs to
+-- agree on. Avenues are four lanes wide (two each direction), with room for
+-- real two-way traffic to pass. The steam grate the intro opens on sits on
+-- Marrow St, near the top of the grid.
 CityConfig.LANE_WIDTH = 11
 CityConfig.ROAD_WIDTH = CityConfig.LANE_WIDTH * 4
-CityConfig.ROAD_LENGTH = 320
 CityConfig.SIDEWALK_WIDTH = 12
 CityConfig.GRATE_POSITION = Vector3.new(0, 1, 4)
 
--- Lane centres, X-offset from the road's own centreline. Roblox's forward
--- convention (an unrotated CFrame's LookVector is -Z, RightVector is +X)
--- makes "drive on the right" work out to: traffic facing -Z (outbound, same
--- direction the whole opening cutscene already drives) belongs on the +X
--- half: traffic facing +Z (inbound, yawed 180) belongs on the -X half, since
--- its own RightVector is -X once turned around.
-CityConfig.OUTBOUND_LANE_X = { CityConfig.LANE_WIDTH * 0.5, CityConfig.LANE_WIDTH * 1.5 }
-CityConfig.INBOUND_LANE_X = { -CityConfig.LANE_WIDTH * 0.5, -CityConfig.LANE_WIDTH * 1.5 }
-
--- Building row spacing (OpeningSetBuilder.buildBuildingRow) and which block
--- slots become real cross-street intersections (IntersectionBuilder) instead
--- of another building -- shared here so both files, plus TrafficSpawner's
--- traffic-light lookups, agree on where the intersections actually are.
+-- Building slots along every avenue are BLOCK_SPACING long, numbered from
+-- BLOCK_ORIGIN_Z down -Z. Some slots are cross streets instead.
 CityConfig.BLOCK_SPACING = 34
 CityConfig.BLOCK_ORIGIN_Z = 20
-CityConfig.INTERSECTION_BLOCK_INDICES = { 3, 6 }
-CityConfig.CROSS_STREET_WIDTH = 22
-CityConfig.CROSS_STREET_HALF_LENGTH = 50
 
--- The Z coordinate (world space) of the given block index's centreline, the
--- same formula OpeningSetBuilder.buildBuildingRow places buildings with.
+-- The Z coordinate (world space) of the given block index's centreline.
 function CityConfig.blockZ(index: number): number
 	return CityConfig.BLOCK_ORIGIN_Z - index * CityConfig.BLOCK_SPACING
 end
 
--- World-space Z of every cross-street intersection, in block order.
-CityConfig.INTERSECTION_Z = {}
-for _, index in CityConfig.INTERSECTION_BLOCK_INDICES do
-	table.insert(CityConfig.INTERSECTION_Z, CityConfig.blockZ(index))
+-- ===== The street grid =====
+-- Three four-lane avenues running along Z, joined by two-lane cross streets
+-- running along X. The first and last cross streets are the edge of the
+-- grid, so every street connects at both ends and traffic can circle.
+-- Marrow St (X = 0) is the original strip, where the intro takes place.
+CityConfig.AVENUES = {
+	{ x = -300, name = "Ashby Ave" },
+	{ x = 0, name = "Marrow St" },
+	{ x = 300, name = "Calloway Ave" },
+}
+CityConfig.MAIN_AVENUE_X = 0
+
+-- A cross street takes up one whole block slot: 22 studs of road and an
+-- 8-stud sidewalk each side (34 = BLOCK_SPACING).
+CityConfig.CROSS_STREET_WIDTH = 22
+CityConfig.CROSS_SIDEWALK_WIDTH = 6
+-- Where buildings start on a cross street, from its centreline.
+CityConfig.CROSS_BUILDING_EDGE = CityConfig.BLOCK_SPACING / 2
+CityConfig.CROSS_STREETS = {
+	{ index = -1, name = "Harrow St" },
+	{ index = 3, name = "Delano Ave" },
+	{ index = 6, name = "Kesting St" },
+	{ index = 10, name = "Orchard Ave" },
+	{ index = 13, name = "Vail St" },
+	{ index = 17, name = "Tolland St" },
+	{ index = 20, name = "Linden Ave" },
+	{ index = 24, name = "Quarry St" },
+	{ index = 27, name = "Marsh Ave" },
+	{ index = 30, name = "Ember St" },
+}
+CityConfig.CROSS_STREET_INDEX = {}
+for _, street in CityConfig.CROSS_STREETS do
+	street.z = CityConfig.blockZ(street.index)
+	CityConfig.CROSS_STREET_INDEX[street.index] = street
 end
+
+-- The grid's extent: avenues run from the first cross street to the last,
+-- cross streets from the first avenue to the last.
+CityConfig.GRID_TOP_Z = CityConfig.CROSS_STREETS[1].z
+CityConfig.GRID_BOTTOM_Z = CityConfig.CROSS_STREETS[#CityConfig.CROSS_STREETS].z
+CityConfig.GRID_LEFT_X = CityConfig.AVENUES[1].x
+CityConfig.GRID_RIGHT_X = CityConfig.AVENUES[#CityConfig.AVENUES].x
+CityConfig.FIRST_SLOT = CityConfig.CROSS_STREETS[1].index + 1
+CityConfig.LAST_SLOT = CityConfig.CROSS_STREETS[#CityConfig.CROSS_STREETS].index - 1
+
+function CityConfig.isCrossSlot(index: number): boolean
+	return CityConfig.CROSS_STREET_INDEX[index] ~= nil
+end
+
+-- Lane centres either side of a street's centreline, measured toward the
+-- driver's right (traffic drives on the right).
+CityConfig.AVENUE_LANE_OFFSETS = { CityConfig.LANE_WIDTH * 0.5, CityConfig.LANE_WIDTH * 1.5 }
+CityConfig.CROSS_LANE_OFFSETS = { CityConfig.CROSS_STREET_WIDTH / 4 }
 
 -- The taxi rank: a pull-in bay the player's cab actually starts parked in,
 -- off the driving lanes entirely -- it used to spawn straight into the
@@ -94,6 +125,98 @@ CityConfig.TAXI_RANK_X_FAR = CityConfig.ROAD_WIDTH / 2 + CityConfig.SIDEWALK_WID
 -- block closes that gap at the source.
 CityConfig.TAXI_RANK_LENGTH = CityConfig.BLOCK_SPACING
 
+-- Where a block's street wall starts: past the road, the sidewalk and a
+-- 3-stud setback. Ordinary buildings are 20 deep from here.
+CityConfig.BUILDING_EDGE = CityConfig.ROAD_WIDTH / 2 + CityConfig.SIDEWALK_WIDTH + 3
+
+-- Named places along the avenues, each taking the block slot (avenue x,
+-- index, side) an ordinary building would otherwise fill -- see
+-- DistrictBuilder. `span` lets one place take several consecutive blocks
+-- (the parks). The first taxiRank is the player's own (TAXI_RANK_* above
+-- must match it). `x` defaults to Marrow St.
+CityConfig.LOTS = {
+	{ index = 1, side = 1, kind = "taxiRank" },
+	-- Marrow St, the original strip.
+	{ index = 2, side = -1, kind = "shops" },
+	{ index = 4, side = 1, kind = "nightclub", name = "VELVET" },
+	{ index = 5, side = -1, kind = "shops" },
+	{ index = 5, side = 1, kind = "cinema", name = "RIALTO" },
+	{ index = 7, side = -1, kind = "park", span = 3, name = "MARROW PARK" },
+	{ index = 7, side = 1, kind = "highrise", name = "THE ARDSLEY" },
+	{ index = 8, side = 1, kind = "highrise", name = "HALCYON HOUSE" },
+	{ index = 9, side = 1, kind = "highrise", name = "THE BELLMORE" },
+	{ index = 11, side = -1, kind = "taxiRank" },
+	{ index = 11, side = 1, kind = "shops" },
+	{ index = 12, side = -1, kind = "highrise", name = "MARROW TOWERS" },
+	{ index = 14, side = 1, kind = "nightclub", name = "THE BASEMENT" },
+	{ index = 15, side = -1, kind = "shops" },
+	-- Marrow St, further down.
+	{ index = 16, side = 1, kind = "shops" },
+	{ index = 18, side = 1, kind = "nightclub", name = "NEON ROOM" },
+	{ index = 19, side = -1, kind = "cinema", name = "STARLITE" },
+	{ index = 21, side = 1, kind = "highrise", name = "THE WINTHROP" },
+	{ index = 22, side = -1, kind = "taxiRank" },
+	{ index = 23, side = 1, kind = "shops" },
+	{ index = 25, side = -1, kind = "highrise", name = "MERIDIAN HOUSE" },
+	{ index = 26, side = 1, kind = "shops" },
+	{ index = 28, side = -1, kind = "nightclub", name = "AFTERHOURS" },
+	{ index = 29, side = 1, kind = "shops" },
+	-- Calloway Ave, the east avenue.
+	{ x = 300, index = 1, side = -1, kind = "shops" },
+	{ x = 300, index = 4, side = 1, kind = "highrise", name = "THE ASHFORD" },
+	{ x = 300, index = 7, side = -1, kind = "nightclub", name = "CLUB MIRAGE" },
+	{ x = 300, index = 9, side = 1, kind = "shops" },
+	{ x = 300, index = 12, side = -1, kind = "taxiRank" },
+	{ x = 300, index = 14, side = 1, kind = "shops" },
+	{ x = 300, index = 18, side = -1, kind = "highrise", name = "KINGSLEY COURT" },
+	{ x = 300, index = 21, side = 1, kind = "cinema", name = "THE GRAND" },
+	{ x = 300, index = 22, side = -1, kind = "shops" },
+	{ x = 300, index = 25, side = -1, kind = "highrise", name = "THE HOLLIS" },
+	{ x = 300, index = 28, side = 1, kind = "nightclub", name = "STATIC" },
+	-- Ashby Ave, the west avenue.
+	{ x = -300, index = 2, side = 1, kind = "nightclub", name = "HALO" },
+	{ x = -300, index = 5, side = -1, kind = "shops" },
+	{ x = -300, index = 8, side = 1, kind = "highrise", name = "LANGFORD TOWER" },
+	{ x = -300, index = 9, side = -1, kind = "shops" },
+	{ x = -300, index = 12, side = 1, kind = "shops" },
+	{ x = -300, index = 15, side = -1, kind = "taxiRank" },
+	{ x = -300, index = 16, side = 1, kind = "highrise", name = "THE COLBURN" },
+	{ x = -300, index = 19, side = -1, kind = "shops" },
+	{ x = -300, index = 21, side = 1, kind = "park", span = 3, name = "ASHBY SQUARE" },
+	{ x = -300, index = 26, side = -1, kind = "cinema", name = "MAJESTIC" },
+	{ x = -300, index = 29, side = 1, kind = "shops" },
+}
+for _, lot in CityConfig.LOTS do
+	lot.x = lot.x or CityConfig.MAIN_AVENUE_X
+end
+
+-- The lot covering block `index` on `side` of the avenue at `x` (Marrow St
+-- if left out), if any.
+function CityConfig.lotAt(index: number, side: number, x: number?)
+	local avenueX = x or CityConfig.MAIN_AVENUE_X
+	for _, lot in CityConfig.LOTS do
+		local span = lot.span or 1
+		if lot.x == avenueX and lot.side == side and index >= lot.index and index < lot.index + span then
+			return lot
+		end
+	end
+	return nil
+end
+
+-- Which block slot world `z` falls in.
+function CityConfig.slotAt(z: number): number
+	return math.floor((CityConfig.BLOCK_ORIGIN_Z - z) / CityConfig.BLOCK_SPACING + 0.5)
+end
+
+-- Z range {near, far} (near > far, since the strip runs along -Z) a lot
+-- covers, edge to edge.
+function CityConfig.lotZRange(lot): (number, number)
+	local half = CityConfig.BLOCK_SPACING / 2
+	local near = CityConfig.blockZ(lot.index) + half
+	local far = CityConfig.blockZ(lot.index + (lot.span or 1) - 1) - half
+	return near, far
+end
+
 -- Y is high enough that the car's wheels (see CarBuilder) clear the ground
 -- surface and settle onto it under gravity, instead of spawning clipped into
 -- it. No yaw here: the car's local -Z front (headlights/windshield, see
@@ -115,14 +238,15 @@ CityConfig.CAR_SPAWN_CFRAME = CFrame.new(
 )
 
 -- The Marrow Cab Co. dispatch office -- where the intro cutscene now opens,
--- before it ever cuts to the street/grate. Built well clear of the street
--- strip's own footprint (see ROAD_WIDTH/SIDEWALK_WIDTH/building depth above)
--- so the two sets never overlap; nothing ever physically walks between them,
--- since the whole opening is one continuous scripted camera sequence, so
--- there's no need for them to be adjacent. TaxiOfficeBuilder and
+-- before it ever cuts to the street/grate. Nothing ever physically walks
+-- between it and the street (the whole opening is one scripted camera
+-- sequence), so it's a sealed room tucked underneath the city, right below
+-- the player's taxi rank: clear of the grid at any size, and always close to
+-- the player, so the client already has it loaded when the cutscene starts
+-- (the place streams the world in around the player). TaxiOfficeBuilder and
 -- IntroCutscene both key off these same points so the camera's entrance/desk
 -- shots always line up with whatever the room actually looks like.
-CityConfig.OFFICE_ORIGIN = Vector3.new(400, 5, 0)
+CityConfig.OFFICE_ORIGIN = Vector3.new(30, -120, 0)
 CityConfig.OFFICE_DOOR_POSITION = CityConfig.OFFICE_ORIGIN + Vector3.new(0, 0, -7)
 CityConfig.OFFICE_DESK_POSITION = CityConfig.OFFICE_ORIGIN + Vector3.new(0, 0, 5.5)
 

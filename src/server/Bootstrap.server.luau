@@ -24,3 +24,27 @@ acceptJob.Parent = remotes
 local stopEngine = Instance.new("RemoteEvent")
 stopEngine.Name = "StopEngine"
 stopEngine.Parent = remotes
+
+-- Fares (see FareService): the server tells the client where its fare
+-- stands -- the job, its passenger, whether they're aboard, what it paid,
+-- and any new job on offer -- whenever any of that changes.
+local fareUpdate = Instance.new("RemoteEvent")
+fareUpdate.Name = "FareUpdate"
+fareUpdate.Parent = remotes
+
+-- And the client asks things of it: take or turn down the job on offer, or
+-- say the passenger's finished talking and is ready to get out.
+local fareAction = Instance.new("RemoteEvent")
+fareAction.Name = "FareAction"
+fareAction.Parent = remotes
+
+-- The story (see StoryService): the server says which chapter and step the
+-- player's on and how it's going; the client asks to start a chapter, says
+-- when everyone's finished talking, and passes on the player's choices.
+local storyUpdate = Instance.new("RemoteEvent")
+storyUpdate.Name = "StoryUpdate"
+storyUpdate.Parent = remotes
+
+local storyAction = Instance.new("RemoteEvent")
+storyAction.Name = "StoryAction"
+storyAction.Parent = remotes
