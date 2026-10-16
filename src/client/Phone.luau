@@ -3,8 +3,8 @@
 --   Messages -- texts from dispatch and everyone else
 --   Dispatch -- the ordinary fare you're on, and new ones to take or turn
 --               down
---   Story    -- the story's chapters: which are done, which is ready to
---               start, how many fares until the next
+--   Story    -- the story's chapters, part by part: which are done, which
+--               is on, which is next
 --   Wallet   -- your cash and tonight's earnings
 --   Map      -- the whole city, with your route
 -- New texts flash up beside it while it's put away, and badge its icon.
@@ -38,6 +38,7 @@ local APPS = {
 	{ id = "story", name = "Story", icon = "📖", color = RED },
 	{ id = "wallet", name = "Wallet", icon = "💵", color = Color3.fromRGB(38, 160, 140) },
 	{ id = "map", name = "Map", icon = "🗺️", color = Color3.fromRGB(60, 120, 230) },
+	{ id = "contacts", name = "Contacts", icon = "👤", color = Color3.fromRGB(110, 110, 130) },
 }
 
 -- ===== Little builders =====
@@ -334,6 +335,7 @@ local declineHandler: ((string) -> ())? = nil
 local currentJob = nil
 local currentOffer = nil
 local cancelFareHandler: (() -> ())? = nil
+local dispatchIdle = { "No fares right now.", "Dispatch will text you when one comes in." }
 
 -- Story.
 local storyPage = page("story", "Story")
@@ -341,6 +343,10 @@ local storyList = scroller(storyPage)
 local storyStartHandler: ((number) -> ())? = nil
 local storyQuitHandler: (() -> ())? = nil
 local storyReady = false
+
+-- Contacts.
+local contactsPage = page("contacts", "Contacts")
+local contactsList = scroller(contactsPage)
 
 -- Wallet.
 local walletPage = page("wallet", "Wallet")
@@ -580,8 +586,8 @@ local function redrawDispatch()
 	end
 	if not currentJob and not currentOffer then
 		local c = card(dispatchList, 3)
-		line(c, "No fares right now.", 15, TEXT, true, 1)
-		line(c, "Dispatch will text you when one comes in.", 13, SUBTLE, false, 2)
+		line(c, dispatchIdle[1], 15, TEXT, true, 1)
+		line(c, dispatchIdle[2], 13, SUBTLE, false, 2)
 	end
 	Phone.refreshBadges()
 end
@@ -608,23 +614,40 @@ function Phone.onCancelFare(handler: () -> ())
 	cancelFareHandler = handler
 end
 
--- The Story app. `entries` is every chapter: {index, title, blurb, status
--- ("done"/"ready"/"locked"/"hidden"), need (fares to go, when locked)};
--- `active` the one being played, if any.
-export type StoryEntry = { index: number, title: string, blurb: string, status: string, need: number }
+-- The Story app. `entries` is every chapter in order: {index, part (its
+-- title), title, blurb, status ("done"/"ready"/"hidden")}; `active` the one
+-- being played, if any; `finished` once there's nothing left to play.
+export type StoryEntry = { index: number, part: string, title: string, blurb: string, status: string }
 
-function Phone.setStory(partTitle: string, entries: { StoryEntry }, active: number?, finished: boolean, onFare: boolean)
+local storyNote: string? = nil
+
+function Phone.setStory(entries: { StoryEntry }, active: number?, finished: boolean)
 	for _, child in storyList:GetChildren() do
 		if child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
-	local header = card(storyList, 0)
-	line(header, partTitle, 15, RED, true, 1)
-	line(header, "Story jobs come in between your ordinary fares. Do fares to unlock the next one.", 12, SUBTLE, false, 2)
 	storyReady = false
+	if storyNote then
+		-- Free Play: no story here.
+		local c = card(storyList, 0)
+		line(c, "FREE PLAY", 11, RED, true, 1)
+		line(c, storyNote, 13, TEXT, false, 2)
+		Phone.refreshBadges()
+		return
+	end
+	local order = 0
+	local lastPart = nil
 	for _, entry in entries do
-		local c = card(storyList, entry.index)
+		if entry.part ~= lastPart then
+			lastPart = entry.part
+			order += 1
+			local header = card(storyList, order)
+			header.BackgroundTransparency = 1
+			line(header, entry.part:upper(), 13, RED, true, 1)
+		end
+		order += 1
+		local c = card(storyList, order)
 		line(c, `CHAPTER {entry.index}`, 11, if entry.status == "hidden" then SUBTLE else RED, true, 1)
 		if entry.status == "hidden" then
 			line(c, "???", 16, SUBTLE, true, 2)
@@ -634,8 +657,6 @@ function Phone.setStory(partTitle: string, entries: { StoryEntry }, active: numb
 		line(c, entry.blurb, 13, SUBTLE, false, 3)
 		if entry.status == "done" then
 			line(c, "✓  Done", 13, GREEN, true, 4)
-		elseif entry.status == "locked" then
-			line(c, `Unlocks after {entry.need} more fare{if entry.need == 1 then "" else "s"}.`, 13, GOLD, false, 4)
 		elseif active == entry.index then
 			line(c, "In progress. Follow the red arrows.", 13, TEXT, false, 4)
 			local quit = button(c, "Give up (start again later)", Color3.fromRGB(70, 70, 82), {
@@ -651,24 +672,36 @@ function Phone.setStory(partTitle: string, entries: { StoryEntry }, active: numb
 			end)
 		elseif entry.status == "ready" then
 			storyReady = active == nil
-			local start = button(c, if onFare then "Finish your fare first" else "Start chapter", if onFare then Color3.fromRGB(70, 70, 82) else RED, {
+			line(c, "Up next -- starts on its own, or:", 12, SUBTLE, false, 4)
+			local start = button(c, "Start now", RED, {
 				Size = UDim2.new(1, 0, 0, 36),
 				LayoutOrder = 5,
 				ZIndex = 4,
 			})
 			start.Activated:Connect(function()
-				if storyStartHandler and not onFare then
+				if storyStartHandler then
 					storyStartHandler(entry.index)
 				end
 			end)
 		end
 	end
 	if finished then
-		local c = card(storyList, 100)
-		line(c, "PART TWO", 11, RED, true, 1)
-		line(c, "Coming soon.", 16, TEXT, true, 2)
+		local c = card(storyList, order + 1)
+		line(c, "MORE TO COME", 11, RED, true, 1)
+		line(c, "That's the story so far. The next part's on its way -- in the meantime, Free Play's on the main menu.", 13, TEXT, false, 2)
 	end
 	Phone.refreshBadges()
+end
+
+-- In Free Play, the Story app just says so.
+function Phone.setStoryNote(note: string?)
+	storyNote = note
+end
+
+-- What Dispatch says with no fare on: a heading and a line under it.
+function Phone.setDispatchIdle(heading: string, detail: string)
+	dispatchIdle = { heading, detail }
+	redrawDispatch()
 end
 
 function Phone.onStoryStart(handler: (number) -> ())
@@ -683,10 +716,34 @@ function Phone.openApp(id: string)
 	openApp(id)
 end
 
+-- The Contacts app: {name, number, note}; `highlight` (a name) gets a
+-- "NEW" tag.
+function Phone.setContacts(contacts: { { name: string, number: string, note: string? } }, highlight: string?)
+	for _, child in contactsList:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	for i, contact in contacts do
+		local c = card(contactsList, i)
+		if contact.name == highlight then
+			line(c, "NEW", 11, RED, true, 0)
+			c.BackgroundColor3 = Color3.fromRGB(48, 30, 36)
+		end
+		line(c, contact.name, 17, TEXT, true, 1)
+		line(c, contact.number, 14, SUBTLE, false, 2)
+		if contact.note then
+			line(c, contact.note, 12, SUBTLE, false, 3)
+		end
+	end
+end
+
 function Phone.setSaveState(state: string?)
 	saveLabel.Text = if state == "ok"
 		then "Progress saves automatically"
 		elseif state == "off" then "Saving is off in this session"
+		elseif state == "test" then "Bug test -- nothing is saved"
+		elseif state == "guest" then "This game isn't saved"
 		else ""
 end
 

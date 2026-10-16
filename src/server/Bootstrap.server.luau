@@ -48,3 +48,9 @@ storyUpdate.Parent = remotes
 local storyAction = Instance.new("RemoteEvent")
 storyAction.Name = "StoryAction"
 storyAction.Parent = remotes
+
+-- The main menu's choice: New Game, Load Game, or a bug test from a chapter
+-- (see GameMenu).
+local menuChoice = Instance.new("RemoteEvent")
+menuChoice.Name = "MenuChoice"
+menuChoice.Parent = remotes

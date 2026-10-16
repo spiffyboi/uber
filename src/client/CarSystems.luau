@@ -46,6 +46,39 @@ function CarSystems.isActive(): boolean
 	return active
 end
 
+-- While a cutscene's playing (see Cutscene), it has the camera: the driving
+-- camera stops moving it and stops hiding the driver's body (the cutscene
+-- decides that, shot by shot), and the keys stop driving -- the cab just
+-- rolls to a stop. Afterwards the driving camera eases back in from
+-- wherever the cutscene left it.
+local cutscene = false
+local onCutsceneEnded: (() -> ())? = nil
+
+function CarSystems.setCutscene(on: boolean)
+	if cutscene == on then
+		return
+	end
+	cutscene = on
+	-- Nothing on screen but the film: no "Start Engine" prompt popping up
+	-- over a close-up (seen in a recording of the hold-up), and no Roblox
+	-- menu buttons in the corner.
+	game:GetService("ProximityPromptService").Enabled = not on
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("TopbarEnabled", not on)
+	end)
+	if not on and onCutsceneEnded then
+		onCutsceneEnded()
+	end
+end
+
+-- The driver's body parts, for the cutscene to show or hide.
+local driverParts: { BasePart } = {}
+function CarSystems.setDriverVisible(visible: boolean)
+	for _, part in driverParts do
+		part.LocalTransparencyModifier = if visible then 0 else 1
+	end
+end
+
 -- ===== Handling =====
 local MAX_SPEED = 80 -- studs/second, roughly 55mph
 local REVERSE_MAX_SPEED = 22
@@ -67,7 +100,9 @@ local MPH_PER_STUD = 0.7
 -- ===== Driver's-eye camera =====
 local LOOK_YAW_SPEED = math.rad(110) -- radians/second while A or D is held
 local LOOK_YAW_MAX = math.rad(100) -- clamps short of looking straight back
-local CAM_OFFSET_POS = Vector3.new(0, 2.2, 0)
+-- (3.4: the seat sits 1.2 lower than it used to -- see CarBuilder -- and
+-- the eye stays where it was.)
+local CAM_OFFSET_POS = Vector3.new(0, 3.4, 0)
 -- Slightly down, toward the road over the hood.
 local CAM_PITCH = math.rad(-6)
 local DRIVER_FOV = 74
@@ -350,6 +385,7 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 			table.insert(bodyParts, descendant)
 		end
 	end
+	driverParts = bodyParts
 
 	local connections: { RBXScriptConnection } = {}
 	local ignitionOn = false
@@ -396,6 +432,16 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 	end
 	for _, part in clutter do
 		part.LocalTransparencyModifier = 1
+	end
+
+	-- Coming back from a cutscene: ease from its last shot back to this
+	-- view, with the windshield clutter put back how this view wants it.
+	onCutsceneEnded = function()
+		blendFrom = camera.CFrame
+		blendStart = os.clock()
+		for _, part in clutter do
+			part.LocalTransparencyModifier = if view == "driver" then 1 else 0
+		end
 	end
 
 	-- The server (see CarSpawner's ignition-prompt/StopEngine handlers) is
@@ -482,18 +528,20 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 		end
 
 		local throttle = 0
-		if isHeld(Enum.KeyCode.W, Enum.KeyCode.Up) then
-			throttle += 1
-		end
-		if isHeld(Enum.KeyCode.S, Enum.KeyCode.Down) then
-			throttle -= 1
-		end
 		local steerInput = 0
-		if isHeld(Enum.KeyCode.A, Enum.KeyCode.Left) then
-			steerInput -= 1
-		end
-		if isHeld(Enum.KeyCode.D, Enum.KeyCode.Right) then
-			steerInput += 1
+		if not cutscene then
+			if isHeld(Enum.KeyCode.W, Enum.KeyCode.Up) then
+				throttle += 1
+			end
+			if isHeld(Enum.KeyCode.S, Enum.KeyCode.Down) then
+				throttle -= 1
+			end
+			if isHeld(Enum.KeyCode.A, Enum.KeyCode.Left) then
+				steerInput -= 1
+			end
+			if isHeld(Enum.KeyCode.D, Enum.KeyCode.Right) then
+				steerInput += 1
+			end
 		end
 
 		local forward = chassis.CFrame.LookVector
@@ -572,6 +620,11 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 		end
 		local speed = chassis.AssemblyLinearVelocity:Dot(chassis.CFrame.LookVector)
 
+		if cutscene then
+			speedLabel.Text = ""
+			return
+		end
+
 		if exiting then
 			lookYaw = math.clamp(lookYaw + math.sign(EXIT_LOOK_YAW - lookYaw) * LOOK_YAW_SPEED * dt, -LOOK_YAW_MAX, LOOK_YAW_MAX)
 		elseif ignitionOn then
@@ -642,7 +695,7 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 		if inputState ~= Enum.UserInputState.Begin then
 			return Enum.ContextActionResult.Sink
 		end
-		if exiting or chassis.AssemblyLinearVelocity.Magnitude > EXIT_STATIONARY_SPEED then
+		if exiting or cutscene or chassis.AssemblyLinearVelocity.Magnitude > EXIT_STATIONARY_SPEED then
 			return Enum.ContextActionResult.Sink
 		end
 

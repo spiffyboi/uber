@@ -29,7 +29,7 @@ local CLOTHING_COLORS = {
 	Color3.fromRGB(60, 58, 68),
 }
 
-local PEDESTRIAN_COUNT = 26
+local PEDESTRIAN_COUNT = 36
 local WALK_SPEED = 7
 local LANE_LENGTH = 45
 

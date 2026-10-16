@@ -45,14 +45,18 @@ function CityConfig.blockZ(index: number): number
 end
 
 -- ===== The street grid =====
--- Three four-lane avenues running along Z, joined by two-lane cross streets
+-- Five four-lane avenues running along Z, joined by two-lane cross streets
 -- running along X. The first and last cross streets are the edge of the
 -- grid, so every street connects at both ends and traffic can circle.
 -- Marrow St (X = 0) is the original strip, where the intro takes place.
+-- (Grown from three avenues and ten cross streets so a fare can be a proper
+-- drive across town -- about 1200 by 1600 studs now.)
 CityConfig.AVENUES = {
+	{ x = -600, name = "Greaves Ave" },
 	{ x = -300, name = "Ashby Ave" },
 	{ x = 0, name = "Marrow St" },
 	{ x = 300, name = "Calloway Ave" },
+	{ x = 600, name = "Dunmore Ave" },
 }
 CityConfig.MAIN_AVENUE_X = 0
 
@@ -73,6 +77,11 @@ CityConfig.CROSS_STREETS = {
 	{ index = 24, name = "Quarry St" },
 	{ index = 27, name = "Marsh Ave" },
 	{ index = 30, name = "Ember St" },
+	{ index = 34, name = "Foundry St" },
+	{ index = 37, name = "Mercer Ave" },
+	{ index = 41, name = "Cutler St" },
+	{ index = 44, name = "Brine St" },
+	{ index = 47, name = "Wharf St" },
 }
 CityConfig.CROSS_STREET_INDEX = {}
 for _, street in CityConfig.CROSS_STREETS do
@@ -185,6 +194,44 @@ CityConfig.LOTS = {
 	{ x = -300, index = 21, side = 1, kind = "park", span = 3, name = "ASHBY SQUARE" },
 	{ x = -300, index = 26, side = -1, kind = "cinema", name = "MAJESTIC" },
 	{ x = -300, index = 29, side = 1, kind = "shops" },
+	-- Further south, past Ember St: the older, rougher end of the Marrow,
+	-- down toward the wharf.
+	{ index = 32, side = 1, kind = "nightclub", name = "CRIMSON" },
+	{ index = 35, side = -1, kind = "highrise", name = "THE STANDISH" },
+	{ index = 39, side = 1, kind = "shops" },
+	{ index = 43, side = -1, kind = "cinema", name = "BIJOU" },
+	{ index = 46, side = 1, kind = "shops" },
+	{ x = 300, index = 31, side = 1, kind = "shops" },
+	{ x = 300, index = 33, side = 1, kind = "chapel", name = "LARKIN & SONS" },
+	{ x = 300, index = 35, side = -1, kind = "highrise", name = "QUARRY HOUSES" },
+	{ x = 300, index = 39, side = 1, kind = "shops" },
+	{ x = 300, index = 42, side = -1, kind = "nightclub", name = "THE FURNACE" },
+	{ x = 300, index = 46, side = 1, kind = "shops" },
+	{ x = -300, index = 32, side = -1, kind = "gunStore", name = "IRONSIDE ARMS" },
+	{ x = -300, index = 36, side = 1, kind = "highrise", name = "ASHBY HOUSES" },
+	{ x = -300, index = 40, side = -1, kind = "nightclub", name = "MOONGLOW" },
+	{ x = -300, index = 45, side = 1, kind = "shops" },
+	-- Greaves Ave, the far west avenue.
+	{ x = -600, index = 4, side = 1, kind = "highrise", name = "THE PALISADE" },
+	{ x = -600, index = 9, side = -1, kind = "nightclub", name = "COPPER ROOM" },
+	{ x = -600, index = 14, side = 1, kind = "shops" },
+	{ x = -600, index = 18, side = -1, kind = "park", span = 2, name = "GREAVES PARK" },
+	{ x = -600, index = 22, side = 1, kind = "cinema", name = "THE LYRIC" },
+	{ x = -600, index = 28, side = -1, kind = "taxiRank" },
+	{ x = -600, index = 33, side = 1, kind = "highrise", name = "ROWAN HOUSES" },
+	{ x = -600, index = 39, side = -1, kind = "shops" },
+	{ x = -600, index = 45, side = 1, kind = "nightclub", name = "THE PIT" },
+	-- Dunmore Ave, the far east avenue.
+	{ x = 600, index = 2, side = -1, kind = "shops" },
+	{ x = 600, index = 8, side = 1, kind = "highrise", name = "THE CLAREMONT" },
+	{ x = 600, index = 12, side = -1, kind = "nightclub", name = "VOLTAGE" },
+	{ x = 600, index = 16, side = 1, kind = "shops" },
+	{ x = 600, index = 21, side = -1, kind = "cinema", name = "THE EMBASSY" },
+	{ x = 600, index = 26, side = 1, kind = "highrise", name = "DUNMORE COURT" },
+	{ x = 600, index = 31, side = -1, kind = "park", span = 2, name = "PIER PARK" },
+	{ x = 600, index = 36, side = 1, kind = "taxiRank" },
+	{ x = 600, index = 40, side = -1, kind = "shops" },
+	{ x = 600, index = 45, side = 1, kind = "highrise", name = "HARBOR VIEW" },
 }
 for _, lot in CityConfig.LOTS do
 	lot.x = lot.x or CityConfig.MAIN_AVENUE_X
@@ -249,5 +296,20 @@ CityConfig.CAR_SPAWN_CFRAME = CFrame.new(
 CityConfig.OFFICE_ORIGIN = Vector3.new(30, -120, 0)
 CityConfig.OFFICE_DOOR_POSITION = CityConfig.OFFICE_ORIGIN + Vector3.new(0, 0, -7)
 CityConfig.OFFICE_DESK_POSITION = CityConfig.OFFICE_ORIGIN + Vector3.new(0, 0, 5.5)
+
+-- Inside Ironside Arms, the gun store on Ashby Ave (chapter 7's cutscene --
+-- see GunStoreBuilder and StoryScenes). The same trick as the office: a
+-- sealed room under the street, right below the shop itself, so it's
+-- already streamed in when the cab pulls up outside. The counter runs
+-- along X; the clerk stands on its +Z side, the customer (the camera) on
+-- the -Z side.
+CityConfig.GUNSTORE_ORIGIN = Vector3.new(-345, -70, CityConfig.blockZ(32))
+CityConfig.GUNSTORE_COUNTER = CityConfig.GUNSTORE_ORIGIN + Vector3.new(0, 0, 2)
+
+-- Inside Larkin & Sons, the funeral chapel on Calloway Ave (chapter 9 -- see
+-- ChapelBuilder and StoryScenes): again a sealed room right under the
+-- building. The origin is the middle of the floor; the doors are at the -Z
+-- end, the casket at the +Z end, the aisle down X = 0.
+CityConfig.CHAPEL_ORIGIN = Vector3.new(345, -70, CityConfig.blockZ(33))
 
 return CityConfig

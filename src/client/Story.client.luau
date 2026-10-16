@@ -30,7 +30,14 @@ local SPEAKER_COLORS = {
 	DEZ = Color3.fromRGB(90, 210, 120),
 	RUNNER = Color3.fromRGB(90, 210, 120),
 	VANCE = Color3.fromRGB(235, 80, 90),
+	MINISTER = Color3.fromRGB(215, 205, 185),
+	TEDDY = Color3.fromRGB(215, 190, 150),
+	LOU = Color3.fromRGB(240, 220, 170),
 }
+
+-- True while something (the side-street glimpse) has the screen and a
+-- ride's conversation should wait.
+local holdLines = false
 
 -- Updates can arrive before the screen's ready (the first chapter starts
 -- the moment the intro's call is accepted): keep them all, in order.
@@ -50,6 +57,8 @@ while not player:GetAttribute("IntroDone") do
 end
 
 local Screen = require(script.Parent.Screen)
+local Cutscene = require(script.Parent.Cutscene)
+local StoryScenes = require(script.Parent.StoryScenes)
 
 local choices: { [string]: any } = {}
 local run = nil -- the chapter being played, as last heard from the server
@@ -73,12 +82,35 @@ local function nameOf(who: string): string
 	return if character then character.name else who
 end
 
+-- ("{name}" in a line is the player's own name -- Dez, in the alley.)
 local function say(line)
-	Screen.say(line.speaker, line.text, SPEAKER_COLORS[line.speaker])
+	local text = string.gsub(line.text or "", "{name}", (string.gsub(player.DisplayName, "%%", "%%%%")))
+	Screen.say(line.speaker, text, SPEAKER_COLORS[line.speaker])
 end
 
 local function applies(entry): boolean
 	return StoryConfig.applies(entry, choices)
+end
+
+-- For testing in Studio only: plays a story cutscene again on demand, with
+-- whoever's in the back as the cast -- fire PlayerGui.DebugScene with the
+-- chapter's number and the scene step's number (or with a made-up step, to
+-- try out a shot or two). Nothing in the game fires it, and it isn't there
+-- outside Studio.
+if RunService:IsStudio() then
+	local debugScene = Instance.new("BindableEvent")
+	debugScene.Name = "DebugScene"
+	debugScene.Parent = player:WaitForChild("PlayerGui")
+	debugScene.Event:Connect(function(chapterIndex: any, stepIndex: number?)
+		local step = if type(chapterIndex) == "table" then chapterIndex else StoryConfig.CHAPTERS[chapterIndex].steps[stepIndex]
+		StoryScenes[step.scene](step, function(line)
+			if applies(line) then
+				say(line)
+			end
+		end, function()
+			return true
+		end)
+	end)
 end
 
 local function setObjective(value: string?)
@@ -89,27 +121,39 @@ end
 
 local announced = 0
 
+local freePlay = player:GetAttribute("GameMode") == "free"
+if freePlay then
+	Phone.setStoryNote("This is Free Play: just fares. The story's on the main menu.")
+end
+
+local function partTitle(chapter): string
+	return StoryConfig.PARTS[StoryConfig.partOf(chapter)] or ""
+end
+
 local function refreshStory()
 	local done = player:GetAttribute("StoryDone") or 0
-	local faresSince = player:GetAttribute("FaresSinceStory") or 0
 	local entries = {}
 	local readyIndex = nil
 	for index, chapter in StoryConfig.CHAPTERS do
-		local status, need = StoryConfig.status(index, done, faresSince)
+		local status = StoryConfig.status(index, done)
 		if status == "ready" then
 			readyIndex = index
 		end
 		table.insert(entries, {
 			index = index,
+			part = partTitle(chapter),
 			title = chapter.title,
 			blurb = chapter.blurb,
 			status = status,
-			need = need,
 		})
 	end
-	Phone.setStory(StoryConfig.PART_TITLE, entries, run and run.chapter, done >= #StoryConfig.CHAPTERS, player:GetAttribute("Busy") == "fare")
+	Phone.setStory(entries, run and run.chapter, done >= #StoryConfig.CHAPTERS)
+	if freePlay then
+		return
+	end
 
-	-- A chapter that's just come ready: a text about it, and a nudge.
+	-- The next chapter's on its way (it starts by itself shortly -- see
+	-- StoryService): a text about it, and a word on screen.
 	local chapter = readyIndex and StoryConfig.CHAPTERS[readyIndex]
 	if chapter and not chapter.startsFromIntro and not run then
 		if announced ~= readyIndex then
@@ -119,13 +163,15 @@ local function refreshStory()
 				Phone.addMessage(t.from, t.text)
 			end
 		end
-		Screen.setObjective("storyReady", `Story: "{chapter.title}" is ready -- press P, open Story`)
+		Screen.setObjective("storyReady", `Up next: "{chapter.title}"`)
+	elseif not chapter and not run and done >= #StoryConfig.CHAPTERS then
+		Screen.setObjective("storyReady", "That's the story so far -- more to come.")
 	else
 		Screen.setObjective("storyReady", nil)
 	end
 end
 
-for _, name in { "StoryDone", "FaresSinceStory", "Busy" } do
+for _, name in { "StoryDone", "Busy" } do
 	player:GetAttributeChangedSignal(name):Connect(refreshStory)
 end
 
@@ -133,6 +179,49 @@ Phone.onStoryStart(function(index)
 	storyAction:FireServer("start", index)
 	Phone.setOpen(false)
 end)
+
+-- ===== Contacts =====
+-- Mom and Dispatch from the start; whoever the story's put in the phone
+-- since (Dez, from chapter 3 -- see the contact cutscene).
+
+local function refreshContacts(highlight: string?)
+	local contacts = {
+		{ name = "Dispatch", number = "555-0100", note = "Marrow Cab Co." },
+		{ name = "Mom", number = "555-0112" },
+	}
+	local done = player:GetAttribute("StoryDone") or 0
+	for index, chapter in StoryConfig.CHAPTERS do
+		for _, step in chapter.steps do
+			if step.contact and (index <= done or step.contact.name == highlight) then
+				table.insert(contacts, 1, step.contact)
+			end
+		end
+	end
+	Phone.setContacts(contacts, highlight)
+end
+refreshContacts()
+player:GetAttributeChangedSignal("StoryDone"):Connect(function()
+	refreshContacts()
+end)
+
+-- Mid-cutscene: the player's own phone pulled up, open on Contacts with the
+-- new name at the top, then put away again.
+local function showNewContact(name: string)
+	local phoneGui = player.PlayerGui:FindFirstChild("Phone")
+	if phoneGui then
+		phoneGui.Enabled = true
+	end
+	refreshContacts(name)
+	Phone.openApp("contacts")
+	Phone.setOpen(true)
+	task.wait(3.5)
+	Phone.setOpen(false)
+	task.wait(0.3)
+	Phone.openApp("home")
+	if phoneGui and Cutscene.isPlaying() then
+		phoneGui.Enabled = false
+	end
+end
 Phone.onStoryQuit(function()
 	storyAction:FireServer("quit")
 end)
@@ -192,6 +281,9 @@ local function playRide(token: number, step)
 			return arrivedToken == token
 		end
 		while mine == lineToken and (index <= #lines or not arrived()) do
+			while holdLines and mine == lineToken do
+				task.wait(0.1)
+			end
 			local p = progress()
 			for i = #texts, 1, -1 do
 				if p >= texts[i].at or arrived() then
@@ -252,12 +344,18 @@ local function onStep(r, step, phase: string)
 			setObjective(`{name} is getting in...`)
 			aboard = name
 		end
-	elseif kind == "ride" then
+	elseif kind == "ride" or kind == "drive" then
 		if phase == "riding" then
 			local what = cargo or aboard or "them"
 			local verb = if cargo and not aboard then "Deliver" else "Drop off"
-			Navigation.setTarget(step.spot.stop, `{verb} {if cargo and not aboard then cargo else what}`, RED)
-			if step.timeLimit then
+			if kind == "drive" then
+				Navigation.setTarget(step.spot.stop, step.spot.name, RED)
+			else
+				Navigation.setTarget(step.spot.stop, `{verb} {if cargo and not aboard then cargo else what}`, RED)
+			end
+			if kind == "drive" then
+				setObjective(`Drive to {step.spot.name}`)
+			elseif step.timeLimit then
 				setObjective(`Get {what} to {step.spot.name} -- don't let them catch you`)
 			elseif cargo and not aboard then
 				setObjective(`Take {cargo} to {step.spot.name}`)
@@ -308,19 +406,70 @@ local function onStep(r, step, phase: string)
 		end
 	elseif kind == "robbery" then
 		if phase == "threat" then
-			Screen.flash(RED, 0.35, 1.5)
+			-- The robbery cutscene (see StoryScenes), then "done".
 			setObjective("Don't move.")
-			playLines(r.token, step.lines)
+			lineToken += 1
+			local token = r.token
+			task.spawn(function()
+				StoryScenes.robbery(step.lines, function(line)
+					if applies(line) then
+						say(line)
+					end
+				end, function()
+					return run ~= nil and run.token == token
+				end)
+				continueStep(token)
+			end)
 		elseif phase == "robbed" then
 			meterOn = false
 			Screen.setMeter("")
 			aboard = nil
 			Screen.flash(RED, 0.5, 2)
-			setObjective(`Robbed. {nameOf("tommy")} took your cash and ran.`)
+			setObjective(`Robbed. {nameOf("tommy")} took your cash and ran. Start the engine again (E).`)
 			if (r.amount or 0) > 0 then
 				Screen.showMoney(-r.amount)
-				Phone.addEarning("Robbed on Ember St", -r.amount)
+				Phone.addEarning("Robbed down by the wharf", -r.amount)
 			end
+			task.spawn(StoryScenes.robberyEscape)
+		end
+	elseif kind == "scene" then
+		if phase == "playing" and step.scene == "contact" then
+			lineToken += 1
+			local token = r.token
+			task.spawn(function()
+				StoryScenes.contact(step, function(line)
+					if applies(line) then
+						say(line)
+					end
+				end, function()
+					return run ~= nil and run.token == token
+				end, function()
+					showNewContact(step.contact.name)
+				end)
+				continueStep(token)
+			end)
+		elseif phase == "playing" and StoryScenes[step.scene] then
+			-- The gun store, the pistol going in the door, the hold-up:
+			-- see StoryScenes.
+			setObjective(nil)
+			Navigation.setTarget(nil)
+			lineToken += 1
+			local token = r.token
+			task.spawn(function()
+				StoryScenes[step.scene](step, function(line)
+					if applies(line) then
+						say(line)
+					end
+				end, function()
+					return run ~= nil and run.token == token
+				end)
+				continueStep(token)
+			end)
+		end
+	elseif kind == "purchase" then
+		if phase == "bought" and (r.amount or 0) > 0 then
+			Screen.showMoney(-r.amount)
+			Phone.addEarning(step.note or step.item, -r.amount)
 		end
 	elseif kind == "errand" then
 		if phase == "waiting" then
@@ -329,6 +478,8 @@ local function onStep(r, step, phase: string)
 			Screen.setTimer(r.deadline, Color3.fromRGB(240, 236, 225))
 		elseif phase == "gunfire" then
 			Screen.setTimer(nil)
+			-- Chapter 4: up in the lit window Dez was talking about.
+			StoryScenes.windowGunfire()
 			task.spawn(function()
 				for _ = 1, 4 do
 					Screen.flash(Color3.fromRGB(255, 230, 190), 0.25, 0.25)
@@ -354,16 +505,20 @@ local function onStep(r, step, phase: string)
 		if phase == "paid" then
 			meterOn = false
 			Screen.setMeter("")
+			local leaving = aboard
 			aboard = nil
 			if (r.amount or 0) > 0 then
 				Screen.showMoney(r.amount)
 				Phone.addEarning(step.note or chapterOf(r).title, r.amount)
 			end
+			if step.outro == "walkAway" and Cutscene.isPlaying() and leaving then
+				task.spawn(StoryScenes.walkAway, leaving)
+			end
 		end
 	elseif kind == "ending" then
 		if phase == "ending" then
 			stopEverything()
-			Screen.titleCard(StoryConfig.PART_TITLE:upper(), step.title, step.subtitle, 5)
+			Screen.titleCard(partTitle(chapterOf(r)):upper(), step.title, step.subtitle, 5)
 		end
 	end
 end
@@ -379,8 +534,19 @@ function handleUpdate(data)
 			-- The chapter's over: finished, or given up.
 			stopEverything()
 			local chapter = chapterOf(previous)
-			if (player:GetAttribute("StoryDone") or 0) >= previous.chapter and previous.chapter < #StoryConfig.CHAPTERS then
-				Screen.titleCard(`CHAPTER {previous.chapter} COMPLETE`, chapter.title:upper(), "The next chapter unlocks after more fares.", 3)
+			local completed = (player:GetAttribute("StoryDone") or 0) >= previous.chapter
+			if not completed and Cutscene.isPlaying() then
+				-- Given up mid-cutscene.
+				StoryScenes.abort()
+			end
+			-- (A chapter that ends on its own card -- the end of a part --
+			-- doesn't need this one too.)
+			local endsOnCard = false
+			for _, step in chapter.steps do
+				endsOnCard = endsOnCard or step.type == "ending"
+			end
+			if completed and not endsOnCard then
+				Screen.titleCard(`CHAPTER {previous.chapter} COMPLETE`, chapter.title:upper(), "The story carries on in a moment.", 3)
 			end
 		end
 		refreshStory()
@@ -391,8 +557,47 @@ function handleUpdate(data)
 		-- A chapter starting.
 		stopEverything()
 		local chapter = chapterOf(r)
-		Screen.titleCard(`CHAPTER {r.chapter}`, chapter.title:upper(), chapter.blurb, 3.5)
+		Screen.titleCard(`{partTitle(chapter):upper()}  ·  CHAPTER {r.chapter}`, chapter.title:upper(), chapter.blurb, 3.5)
 		refreshStory()
+	end
+
+	-- Chapter 9's side street: once the server's set it out ahead, wait for
+	-- the cab to reach the junction, then the glimpse (see StoryScenes).
+	-- It always plays: at the junction if the cab gets there, or anyway if
+	-- it's gone past, or hasn't arrived after a while (stopped, or another
+	-- way round) -- the shots are set by the side street, not the cab.
+	if r.alley and not seen[r.token .. ":alley"] then
+		seen[r.token .. ":alley"] = true
+		local token, alley = r.token, r.alley
+		local alleyStep = stepOf(r)
+		task.spawn(function()
+			local placed = os.clock()
+			while run and run.token == token do
+				local car = workspace:FindFirstChild(player.Name .. "_Car")
+				local chassis = car and (car :: Model).PrimaryPart
+				local due = os.clock() - placed > 15
+				if chassis then
+					local offset = alley.corner - chassis.Position
+					local ahead = offset:Dot(alley.travel)
+					local across = (offset - alley.travel * ahead) * Vector3.new(1, 0, 1)
+					-- A little before the junction, so the look's out of the side
+					-- window and ahead, not straight through the door.
+					due = due or (ahead < 35 and across.Magnitude < 30)
+				end
+				if due then
+					holdLines = true
+					Screen.hush()
+					StoryScenes.alley(alley, (alleyStep.alley or {}).lines or {}, function(line)
+						if applies(line) then
+							say(line)
+						end
+					end)
+					holdLines = false
+					return
+				end
+				task.wait()
+			end
+		end)
 	end
 
 	if r.deadline and r.phase == "riding" then

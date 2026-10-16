@@ -334,6 +334,13 @@ local function run()
 	while not player:GetAttribute("LoadingScreenDone") do
 		player:GetAttributeChangedSignal("LoadingScreenDone"):Wait()
 	end
+	-- Then the main menu (see Menu.client), which fades to black and says
+	-- when it's done with the camera. The opening only plays for a new
+	-- game; a loaded game or a bug test goes straight to the cab.
+	while not player:GetAttribute("MenuClosed") do
+		player:GetAttributeChangedSignal("MenuClosed"):Wait()
+	end
+	local skipOpening = player:GetAttribute("GameMode") ~= "new"
 
 	local character = player.Character or player.CharacterAdded:Wait()
 	local car, chassis, seat = waitForCar()
@@ -387,6 +394,23 @@ local function run()
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	local fade = buildFade(gui)
+
+	if skipOpening then
+		-- Straight into the driver's seat, fading up from the menu's black.
+		-- Starting the shift is what tells the server to get the fares (or
+		-- the bug test's chapter) going, the same as answering the radio.
+		camera.CFrame = seat.CFrame * CFrame.new(0, 3.4, 0)
+		cameraGuard:Disconnect()
+		CarSystems.start(car, chassis, seat, gpsScreen, character, hideConnection)
+		player:SetAttribute("IntroDone", true)
+		acceptJobRemote:FireServer()
+		task.wait(0.3)
+		TweenService:Create(fade, TweenInfo.new(1), { BackgroundTransparency = 1 }):Play()
+		task.wait(1.1)
+		gui:Destroy()
+		return
+	end
+
 	local top, bottom = buildLetterbox(gui)
 	local subtitle = buildSubtitle(gui)
 	local speakerTag = buildSpeakerTag(gui)

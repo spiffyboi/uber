@@ -71,7 +71,9 @@ end
 -- one was most of the ~110,000 objects the city cost every player to load
 -- (confirmed live: loading it all starved Roblox's own chat of time and it
 -- failed to start).
-local UNLIT_SHARE = 0.22
+-- (Cut from 0.22 when the city tripled in size: measured live, ~28,000
+-- window frames, and Studio's test play running out of memory.)
+local UNLIT_SHARE = 0.1
 
 -- A grid of windows, some lit. `top`/`bottom` are fractions of the wall's
 -- height (0 = top edge) to confine the grid, e.g. above a storefront. Each

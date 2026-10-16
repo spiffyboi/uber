@@ -322,11 +322,27 @@ function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	-- looked like they were sticking out of the roof, not sitting inside.
 	-- Level with chassis centre (no Y offset at all) reads as properly
 	-- inside the cabin instead.
+	--
+	-- Still too high, it turned out, once the story's cutscenes looked at
+	-- the driver (measured live: the cabin roof is ~3.8 studs above that old
+	-- seat, the seated character's head top 4.2 and a hat 4.9 -- the head
+	-- poked out through the roof). So the seat itself now sits DRIVER_DROP
+	-- lower, and everything that was placed from the old seat -- the dash
+	-- screen, the key, the door prompt, the back seat -- is placed from
+	-- `cabin`, where it used to be. The driving camera (CarSystems) is raised
+	-- by the same amount, so the driver's eye hasn't moved. The chassis
+	-- carries `cabin` as an attachment named "Cabin" for the cutscenes.
+	local DRIVER_DROP = 1.2
+	local cabin = chassis.CFrame * CFrame.new(0, -0.2, 0.5)
+	local cabinAttachment = Instance.new("Attachment")
+	cabinAttachment.Name = "Cabin"
+	cabinAttachment.CFrame = chassis.CFrame:ToObjectSpace(cabin)
+	cabinAttachment.Parent = chassis
 	local seat = Instance.new("VehicleSeat")
 	seat.Name = "DriveSeat"
 	seat.Size = Vector3.new(2, 1, 2)
 	seat.MaxSpeed = 0 -- movement is driven by CarController, not the seat's own physics
-	seat.CFrame = chassis.CFrame * CFrame.new(0, -0.2, 0.5)
+	seat.CFrame = cabin * CFrame.new(0, -DRIVER_DROP, 0)
 	seat.Transparency = 1
 	-- Like every other part welded onto the chassis, only the chassis
 	-- itself collides.
@@ -360,7 +376,7 @@ function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	-- screen covered most of the driver's view of the road. On the dash just
 	-- right of the wheel it stays readable without blocking the windshield --
 	-- checked live from the driving camera.
-	gpsUnit.CFrame = seat.CFrame * CFrame.new(0.9, 1.5, -1.6) * CFrame.Angles(math.rad(-25), math.pi, 0)
+	gpsUnit.CFrame = cabin * CFrame.new(0.9, 1.5, -1.6) * CFrame.Angles(math.rad(-25), math.pi, 0)
 	gpsUnit.Parent = model
 	weld(chassis, gpsUnit)
 
@@ -419,7 +435,7 @@ function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	-- offsets blow up in perspective at this distance from the camera. This
 	-- offset lands at screen (438, 471) against a ~1506x710 viewport, close
 	-- to where the wheel's own hub actually reads on screen.
-	ignitionKey.CFrame = seat.CFrame * CFrame.new(-0.35, 1.9, -0.8) * CFrame.Angles(0, 0, math.rad(20))
+	ignitionKey.CFrame = cabin * CFrame.new(-0.35, 1.9, -0.8) * CFrame.Angles(0, 0, math.rad(20))
 	ignitionKey.Parent = model
 	weld(chassis, ignitionKey)
 
@@ -444,7 +460,7 @@ function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	driverDoor.CanQuery = false
 	driverDoor.CanTouch = false
 	driverDoor.Massless = true
-	driverDoor.CFrame = seat.CFrame * CFrame.new(-(chassis.Size.X / 2 + 0.3), 1.2, 0)
+	driverDoor.CFrame = cabin * CFrame.new(-(chassis.Size.X / 2 + 0.3), 1.2, 0)
 	driverDoor.Parent = model
 	weld(chassis, driverDoor)
 
@@ -471,7 +487,7 @@ function CarBuilder.build(ownerName: string, cframe: CFrame): Model
 	passengerSeat.Massless = true
 	-- Lower than the driver's seat: level with it, a seated passenger's
 	-- head came up through this tall wagon's roof (measured live).
-	passengerSeat.CFrame = seat.CFrame * CFrame.new(1.1, -0.9, 3)
+	passengerSeat.CFrame = cabin * CFrame.new(1.1, -0.9, 3)
 	passengerSeat.Parent = model
 	weld(chassis, passengerSeat)
 

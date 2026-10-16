@@ -75,6 +75,12 @@ function Passengers.spawn(name: string, look: Look, standing: Vector3, facing: V
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.WalkSpeed = 8
+	-- Stood waiting (pinned in place), a humanoid decides it's falling over
+	-- -- confirmed live: in the FallingDown state the whole wait, and the
+	-- moment it was let go to walk to the cab it toppled flat on the road.
+	-- These people never need to fall over.
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 	local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart
 	local height = standingHeight(npc)
 	npc:PivotTo(CFrame.lookAt(standing + Vector3.new(0, height, 0), Vector3.new(facing.X, standing.Y + height, facing.Z)))
@@ -83,42 +89,117 @@ function Passengers.spawn(name: string, look: Look, standing: Vector3, facing: V
 	return npc
 end
 
--- Walks the passenger to the cab's rear door and sits them in the back.
+-- How the passenger's root sits relative to the back seat. (Measured live
+-- from a passenger the seat itself had sat down: root a bit above the
+-- cushion, facing the way the cab does.)
+local SEATED_OFFSET = CFrame.new(0, 1.55, 0)
+
+-- The sitting pose that comes with the passenger's own rig (its Animate
+-- script lists it, under "sit"), playing for as long as they ride.
+local function sitPose(npc: Model): AnimationTrack?
+	local humanoid = npc:FindFirstChildOfClass("Humanoid")
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	local animate = npc:FindFirstChild("Animate")
+	local sit = animate and animate:FindFirstChild("sit")
+	local animation = sit and sit:FindFirstChildOfClass("Animation")
+	if not animator or not animation then
+		return nil
+	end
+	local track = animator:LoadAnimation(animation)
+	track.Looped = true
+	track.Priority = Enum.AnimationPriority.Action
+	track:Play(0)
+	return track
+end
+
+local riding: { [Model]: { weld: WeldConstraint, pose: AnimationTrack? } } = {}
+
+-- Walks the passenger to the cab's rear door and puts them in the back.
 -- Yields until they're in.
+--
+-- Not with Seat:Sit: a running cab is simulated by the driver's own
+-- machine, and a server-run passenger sat in its seat that way kept
+-- falling out onto the road (reported, every pickup with the engine on).
+-- Instead they're held in place: their body's own physics switched off
+-- (PlatformStand), welded straight to the seat, weightless and not
+-- touching anything, in the sitting pose.
 function Passengers.board(npc: Model, car: Model)
 	local chassis = car.PrimaryPart
-	local seat = car:FindFirstChild("PassengerSeat") :: Seat?
+	local seat = car:FindFirstChild("PassengerSeat") :: BasePart?
 	if not npc.Parent or not chassis or not seat then
 		return
 	end
 	local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart
+	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
 	root.Anchored = false
 	root:SetNetworkOwner(nil)
+	humanoid:ChangeState(Enum.HumanoidStateType.Running)
 	-- To the rear door on whichever side of the cab they're on.
 	local side = if (chassis.CFrame:PointToObjectSpace(root.Position)).X >= 0 then 1 else -1
 	local door = (chassis.CFrame * CFrame.new(side * (chassis.Size.X / 2 + 1.5), 0, 3)).Position
 	Passengers.walkTo(npc, door, 3)
-	-- Riding along: weightless and not bumping the cab around.
+	if not npc.Parent or not seat.Parent then
+		return
+	end
+
+	-- In.
+	root.Anchored = true
+	humanoid.PlatformStand = true
 	for _, descendant in npc:GetDescendants() do
 		if descendant:IsA("BasePart") then
 			descendant.Massless = true
 			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
 		end
 	end
-	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
-	seat:Sit(humanoid)
+	npc:PivotTo(seat.CFrame * SEATED_OFFSET)
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "PassengerWeld"
+	weld.Part0 = seat
+	weld.Part1 = root
+	weld.Parent = root
+	root.Anchored = false
+	riding[npc] = { weld = weld, pose = sitPose(npc) }
+	npc.Destroying:Once(function()
+		riding[npc] = nil
+	end)
+end
+
+-- Is `npc` in the back of a cab right now?
+function Passengers.isAboard(npc: Model?): boolean
+	return npc ~= nil and riding[npc] ~= nil
 end
 
 -- Gets the passenger out of `car` on the side nearest `kerb` and stands them
 -- there facing `toward`. Yields a moment.
+--
+-- Careful order: while they're sitting, the passenger is welded into the
+-- cab, and a running cab is simulated by the driver's own machine (see
+-- CarController) -- so moving them while that weld still exists over there
+-- drags the whole cab round with them (confirmed: the cab spun to face the
+-- sidewalk at every drop-off). So: cut the seat weld here first, freeze them
+-- in place as a separate thing, give that a moment to reach the driver's
+-- machine, and only then move them out.
 function Passengers.getOut(npc: Model, car: Model?, kerb: Vector3, toward: Vector3)
 	if not npc.Parent then
 		return
 	end
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
 	local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart
-	humanoid.Sit = false
-	task.wait(0.15)
+	local ride = riding[npc]
+	riding[npc] = nil
+	if ride then
+		ride.weld:Destroy()
+		if ride.pose then
+			ride.pose:Stop(0.2)
+		end
+	end
+	root.Anchored = true
+	task.wait(0.3)
+	if not npc.Parent then
+		return
+	end
 	local chassis = car and car.PrimaryPart
 	if chassis then
 		local side = if chassis.CFrame:PointToObjectSpace(kerb).X >= 0 then 1 else -1
@@ -131,7 +212,10 @@ function Passengers.getOut(npc: Model, car: Model?, kerb: Vector3, toward: Vecto
 			descendant.CanCollide = descendant.Name == "HumanoidRootPart" or descendant.Name:find("Torso") ~= nil
 		end
 	end
+	humanoid.PlatformStand = false
+	root.Anchored = false
 	root:SetNetworkOwner(nil)
+	humanoid:ChangeState(Enum.HumanoidStateType.Running)
 end
 
 -- Where someone dropped at `standing` (on the sidewalk, `stop` being the
@@ -140,19 +224,41 @@ function Passengers.awayFrom(standing: Vector3, stop: Vector3, distance: number?
 	return standing + (flat(standing) - flat(stop)).Unit * (distance or 10)
 end
 
--- Out of the cab, off toward the buildings, and gone. Doesn't yield.
+-- Which way along the sidewalk from `standing` has more room before
+-- anything's in the way (the avenues run along Z), and how much. `ignore`
+-- is left out of the check (the person themselves, the cab).
+function Passengers.clearWay(standing: Vector3, ignore: { Instance }): (Vector3, number)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	local best, bestDistance = Vector3.zAxis, -1
+	for _, direction in { Vector3.zAxis, -Vector3.zAxis } do
+		local hit = workspace:Raycast(standing + Vector3.new(0, 2.5, 0), direction * 80, params)
+		local distance = if hit then hit.Distance else 80
+		if distance > bestDistance then
+			best, bestDistance = direction, distance
+		end
+	end
+	return best, bestDistance
+end
+
+-- Out of the cab, off up the sidewalk whichever way is clear, and gone.
+-- Doesn't yield. (They used to head straight for the building behind
+-- them, which read as walking into a wall.)
 function Passengers.letOut(npc: Model?, car: Model?, standing: Vector3, stop: Vector3, speed: number?)
 	if not npc or not npc.Parent then
 		return
 	end
 	task.spawn(function()
-		local away = Passengers.awayFrom(standing, stop)
-		Passengers.getOut(npc, car, standing, away)
+		local way, room = Passengers.clearWay(standing, { npc, car :: Instance })
+		Passengers.getOut(npc, car, standing, standing + way * 10)
 		local humanoid = npc:FindFirstChildOfClass("Humanoid")
 		if humanoid and speed then
 			humanoid.WalkSpeed = speed
 		end
-		Passengers.walkTo(npc, away, 5)
+		Passengers.walkTo(npc, standing, 1.5)
+		local distance = math.clamp(room - 3, 6, 60)
+		Passengers.walkTo(npc, standing + way * distance, distance / (if humanoid then humanoid.WalkSpeed else 8) + 1)
 		npc:Destroy()
 	end)
 end

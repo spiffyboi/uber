@@ -200,7 +200,19 @@ local function person(parent: Instance, name: string, groundCFrame: CFrame, desc
 			if descendant:IsA("BasePart") then
 				descendant.Anchored = true
 				descendant.CanTouch = false
-			elseif descendant:IsA("JointInstance") or descendant:IsA("Attachment") or descendant:IsA("ValueBase") or descendant:IsA("NoCollisionConstraint") then
+			elseif
+				descendant:IsA("JointInstance")
+				or descendant:IsA("Attachment")
+				or descendant:IsA("ValueBase")
+				or descendant:IsA("Constraint")
+				or descendant:IsA("NoCollisionConstraint")
+				or descendant:IsA("BaseWrap")
+				or descendant:IsA("WrapTarget")
+			then
+				-- (Constraint and the wrap objects too: newer rigs come with
+				-- a ball-socket and an animation constraint per joint, and a
+				-- layered-clothing wrap target per body part -- measured
+				-- live, ~7,000 objects across the city's queues.)
 				descendant:Destroy()
 			end
 		end
@@ -530,6 +542,124 @@ local function buildShops(parent: Instance, lot)
 		shopCursor = shopCursor % #SHOPS + 1
 		buildShopfront(parent, lot.side, near - 2 - width * k - width / 2, width, SHOPS[shopCursor])
 	end
+end
+
+-- ===== The gun store =====
+-- Ironside Arms (chapter 7): one wide, low brick shopfront, display windows
+-- behind iron bars, a steel grille over the door and a red neon GUNS in the
+-- window. Its inside is built separately, under the street (see
+-- GunStoreBuilder).
+
+local function buildGunStore(parent: Instance, lot)
+	local s = lot.side
+	local roadFace = Facade.roadFace(s)
+	local near, far = CityConfig.lotZRange(lot)
+	local zCenter = (near + far) / 2
+	local width = (near - far) - 4
+	local depth, height = 18, 22
+
+	local building = part(parent, "GunStore_" .. lot.name, Vector3.new(depth, height, width), CFrame.new(at(s, -depth / 2, height / 2, zCenter)), Color3.fromRGB(74, 50, 42), Enum.Material.Brick)
+	local gui = Facade.gui(building, roadFace)
+	Facade.windows(gui, 4, 2, 0.15, 0, 1 - 12 / height)
+
+	local storeHeight = 7
+	local iron = Color3.fromRGB(26, 26, 28)
+	-- Two display windows, either side of the door, lit low and warm, with
+	-- bars in front.
+	for _, offset in { -width * 0.27, width * 0.22 } do
+		local windowWidth = width * 0.34
+		local window = detail(part(parent, "DisplayWindow", Vector3.new(0.2, 4.4, windowWidth), CFrame.new(at(s, 0.1, SIDEWALK_TOP + 0.8 + 2.2, zCenter + offset)), Color3.fromRGB(150, 110, 70), Enum.Material.Neon))
+		window.Transparency = 0.35
+		local bars = math.floor(windowWidth / 0.9)
+		for b = 0, bars do
+			detail(part(parent, "WindowBar", Vector3.new(0.15, 4.8, 0.15), CFrame.new(at(s, 0.45, SIDEWALK_TOP + 0.8 + 2.2, zCenter + offset - windowWidth / 2 + b * (windowWidth / bars))), iron, Enum.Material.Metal))
+		end
+		detail(part(parent, "WindowBarRail", Vector3.new(0.15, 0.15, windowWidth), CFrame.new(at(s, 0.45, SIDEWALK_TOP + 0.9, zCenter + offset)), iron, Enum.Material.Metal))
+		detail(part(parent, "WindowBarRail", Vector3.new(0.15, 0.15, windowWidth), CFrame.new(at(s, 0.45, SIDEWALK_TOP + 5.1, zCenter + offset)), iron, Enum.Material.Metal))
+	end
+	-- "GUNS" in red neon in the left window.
+	local neon = detail(part(parent, "GunsNeon", Vector3.new(0.1, 1.2, 3.6), CFrame.new(at(s, 0.25, SIDEWALK_TOP + 3.4, zCenter - width * 0.27)), Color3.fromRGB(10, 8, 8)))
+	neon.Transparency = 1
+	Facade.boardText(neon, roadFace, "GUNS", Color3.fromRGB(255, 50, 50), nil, Enum.Font.GothamBlack)
+
+	-- The door, behind a steel grille.
+	local doorZ = zCenter - width * 0.02
+	detail(part(parent, "StoreDoor", Vector3.new(0.2, 6.5, 2.4), CFrame.new(at(s, 0.1, SIDEWALK_TOP + 3.25, doorZ)), Color3.fromRGB(40, 30, 24)))
+	local grille = detail(part(parent, "DoorGrille", Vector3.new(0.12, 6.6, 2.6), CFrame.new(at(s, 0.3, SIDEWALK_TOP + 3.3, doorZ)), iron, Enum.Material.DiamondPlate))
+	grille.Transparency = 0.45
+
+	-- The sign: name on a long dark board, and what they sell under it.
+	local signY = SIDEWALK_TOP + storeHeight + 1.6
+	local board = detail(part(parent, "StoreSign", Vector3.new(0.3, 2.6, width - 2), CFrame.new(at(s, 0.2, signY, zCenter)), Color3.fromRGB(14, 14, 16)))
+	Facade.boardText(board, roadFace, lot.name, Color3.fromRGB(235, 225, 200), Color3.fromRGB(14, 14, 16), Enum.Font.GothamBlack)
+	local strip = detail(part(parent, "StoreSignStrip", Vector3.new(0.25, 0.9, width - 2), CFrame.new(at(s, 0.2, signY - 1.85, zCenter)), Color3.fromRGB(120, 20, 20)))
+	Facade.boardText(strip, roadFace, "GUNS  ·  AMMO  ·  PAWN  ·  REPAIRS", Color3.fromRGB(245, 235, 220))
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 120, 90)
+	glow.Brightness = 1.2
+	glow.Range = 14
+	glow.Parent = strip
+end
+
+-- ===== The funeral chapel =====
+-- Larkin & Sons on Calloway (chapter 9): pale stone, low and plain, a pair
+-- of tall arched windows glowing amber either side of double doors, a
+-- carriage lamp at each side of the steps, and the name in quiet capitals.
+-- Nothing on it says which faith; it's for whoever needs it.
+local function buildChapel(parent: Instance, lot)
+	local s = lot.side
+	local roadFace = Facade.roadFace(s)
+	local near, far = CityConfig.lotZRange(lot)
+	local zCenter = (near + far) / 2
+	local width = (near - far) - 4
+	local depth, height = 18, 16
+	local stone = Color3.fromRGB(150, 144, 132)
+	local trim = Color3.fromRGB(110, 104, 96)
+
+	part(parent, "Chapel_" .. lot.name, Vector3.new(depth, height, width), CFrame.new(at(s, -depth / 2, height / 2, zCenter)), stone, Enum.Material.Limestone)
+	-- A low pitched front: a gable over the doors.
+	detail(part(parent, "ChapelGable", Vector3.new(1, 3, width * 0.5), CFrame.new(at(s, 0.3, height + 1.5, zCenter)), trim, Enum.Material.Limestone))
+	detail(part(parent, "ChapelCornice", Vector3.new(1.2, 0.6, width), CFrame.new(at(s, 0.4, height - 0.3, zCenter)), trim, Enum.Material.Limestone))
+
+	-- Steps up to the doors.
+	for i = 0, 2 do
+		detail(part(parent, "ChapelStep", Vector3.new(2.4 - i * 0.8, 0.4, 7), CFrame.new(at(s, 1.2 - i * 0.4, SIDEWALK_TOP + 0.2 + i * 0.4, zCenter)), trim, Enum.Material.Limestone))
+	end
+	-- The doors: dark wood, a lit transom above them.
+	local doorTop = SIDEWALK_TOP + 1.2 + 6.4
+	for _, dz in { -1.3, 1.3 } do
+		detail(part(parent, "ChapelDoor", Vector3.new(0.3, 6.4, 2.5), CFrame.new(at(s, 0.15, SIDEWALK_TOP + 1.2 + 3.2, zCenter + dz)), Color3.fromRGB(56, 36, 24), Enum.Material.Wood))
+	end
+	local transom = detail(part(parent, "ChapelTransom", Vector3.new(0.2, 1.2, 5.2), CFrame.new(at(s, 0.12, doorTop + 0.7, zCenter)), Color3.fromRGB(255, 196, 120), Enum.Material.Neon))
+	transom.Transparency = 0.2
+	-- A wreath on each door.
+	for _, dz in { -1.3, 1.3 } do
+		local wreath = detail(part(parent, "Wreath", Vector3.new(0.3, 1.4, 1.4), CFrame.new(at(s, 0.45, SIDEWALK_TOP + 1.2 + 4.2, zCenter + dz)), Color3.fromRGB(30, 60, 34), Enum.Material.Grass))
+		wreath.Shape = Enum.PartType.Cylinder
+	end
+
+	-- Two tall windows, warm light behind coloured glass.
+	for _, dz in { -width * 0.3, width * 0.3 } do
+		local window = detail(part(parent, "ChapelWindow", Vector3.new(0.2, 8, 3.2), CFrame.new(at(s, 0.12, SIDEWALK_TOP + 6, zCenter + dz)), Color3.fromRGB(230, 160, 80), Enum.Material.Neon))
+		window.Transparency = 0.35
+		detail(part(parent, "WindowMullion", Vector3.new(0.3, 8.2, 0.2), CFrame.new(at(s, 0.25, SIDEWALK_TOP + 6, zCenter + dz)), trim, Enum.Material.Limestone))
+		detail(part(parent, "WindowTransom", Vector3.new(0.3, 0.2, 3.4), CFrame.new(at(s, 0.25, SIDEWALK_TOP + 7.4, zCenter + dz)), trim, Enum.Material.Limestone))
+	end
+
+	-- Carriage lamps either side of the steps.
+	for _, dz in { -4.6, 4.6 } do
+		detail(part(parent, "LampBracket", Vector3.new(0.8, 0.2, 0.2), CFrame.new(at(s, 0.4, SIDEWALK_TOP + 6.2, zCenter + dz)), Color3.fromRGB(26, 26, 28), Enum.Material.Metal))
+		local lamp = detail(part(parent, "CarriageLamp", Vector3.new(0.7, 1.1, 0.7), CFrame.new(at(s, 0.75, SIDEWALK_TOP + 5.6, zCenter + dz)), Color3.fromRGB(255, 214, 150), Enum.Material.Neon))
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 200, 140)
+		light.Brightness = 1.1
+		light.Range = 14
+		light.Parent = lamp
+	end
+
+	-- The name over the doors.
+	local board = detail(part(parent, "ChapelSign", Vector3.new(0.25, 1.2, width * 0.7), CFrame.new(at(s, 0.35, doorTop + 2.4, zCenter)), Color3.fromRGB(40, 38, 36)))
+	Facade.boardText(board, roadFace, lot.name .. "  ·  FUNERAL CHAPEL", Color3.fromRGB(225, 210, 175), Color3.fromRGB(40, 38, 36), Enum.Font.Garamond)
 end
 
 -- ===== Nightclubs =====
@@ -989,6 +1119,8 @@ end
 local LOT_DEPTH = {
 	taxiRank = 21,
 	shops = 18,
+	gunStore = 18,
+	chapel = 18,
 	nightclub = 22,
 	cinema = 24,
 	highrise = 26,
@@ -1010,6 +1142,10 @@ local function buildLots(parent: Instance)
 			firstRank = false
 		elseif lot.kind == "shops" then
 			buildShops(model, lot)
+		elseif lot.kind == "gunStore" then
+			buildGunStore(model, lot)
+		elseif lot.kind == "chapel" then
+			buildChapel(model, lot)
 		elseif lot.kind == "nightclub" then
 			buildNightclub(model, lot)
 		elseif lot.kind == "cinema" then

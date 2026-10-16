@@ -34,41 +34,6 @@ function FareConfig.kerbSpot(x: number, index: number, side: number, along: numb
 	return standing, stop
 end
 
--- ===== Ordinary fares =====
--- What the Dispatch app offers in between the story's chapters (the first
--- fare, Ray, is the story's -- see StoryConfig): a random passenger and a
--- couple of lines of conversation each.
-
-FareConfig.NAMES = { "Denise", "Marcus", "Teresa", "Sal", "Andre", "Lucia", "Frank", "Nina", "Dev", "Rosa", "Eli", "Carmen" }
-
-FareConfig.CHATTER = {
-	{
-		{ at = 0, speaker = "PASSENGER", text = "Hey. Thanks for stopping -- three cabs went right past me." },
-		{ at = 0.4, speaker = "PASSENGER", text = "Double shift at the hospital. My feet are done." },
-		{ at = 0.8, speaker = "PASSENGER", text = "Anywhere round here's fine. Thank you, really." },
-	},
-	{
-		{ at = 0, speaker = "PASSENGER", text = "You got a radio in here? No? That's alright. Quiet's nice." },
-		{ at = 0.5, speaker = "PASSENGER", text = "Used to drive one of these myself. Nine years. Don't miss it." },
-	},
-	{
-		{ at = 0, speaker = "PASSENGER", text = "Quick as you can, I'm late. Not your fault. Nothing's ever your fault, right?" },
-		{ at = 0.6, speaker = "PASSENGER", text = "Sorry. Long night. Long year, honestly." },
-	},
-	{
-		{ at = 0, speaker = "PASSENGER", text = "Is the deli on the corner there still open? Best egg sandwich in The Marrow." },
-		{ at = 0.45, speaker = "PASSENGER", text = "My grandfather drove a cab. Said you learn more about a city from the back seat than from any newspaper." },
-	},
-	{
-		{ at = 0, speaker = "PASSENGER", text = "Evening. Don't mind me, I'll just watch the lights go by." },
-		{ at = 0.7, speaker = "PASSENGER", text = "Pretty, this time of night. You'd almost forget." },
-	},
-}
-
-FareConfig.ARRIVALS = {
-	{ { speaker = "PASSENGER", text = "This is good. Take care of yourself." } },
-	{ { speaker = "PASSENGER", text = "Here's fine. Keep the change." } },
-	{ { speaker = "PASSENGER", text = "Thanks. Get home safe, alright?" } },
-}
+-- Who the ordinary fares are and what they say: see Conversations.
 
 return FareConfig

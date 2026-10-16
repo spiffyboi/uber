@@ -1,0 +1,727 @@
+-- The ordinary fares' passengers: forty different people, each with their
+-- own conversation, so the back seat doesn't repeat itself. Which ones a
+-- player has already heard is saved (see PlayerData / FareService); only
+-- once they've heard all of them does it start over.
+--
+-- Each conversation:
+--   id          -- saved, so never rename one
+--   name        -- who they are (the offer on the phone, the subtitles)
+--   lines       -- said through the ride, spread out evenly by how far along
+--                  it is (the fare's length is picked to suit -- see
+--                  Conversations.talkSeconds); "PASSENGER" or "YOU"
+--   goodbye     -- once the cab's stopped outside
+--   destination -- optional: where they're going, when what they say pins
+--                  it down -- { lot = name } / { kind = lot kind } /
+--                  { avenue = x } / { slots = {first, last} }, any mix
+--
+-- A few of them, here and there, are about the war between the Kesting and
+-- Quarry crews -- the city the story's set in, seen from the back seat.
+-- Everyone here is invented, and all of it is original to this game.
+
+local Conversations = {}
+
+local P, Y = "PASSENGER", "YOU"
+
+local function line(speaker: string, text: string)
+	return { speaker = speaker, text = text }
+end
+
+Conversations.LIST = {
+	{
+		id = "nurse",
+		name = "Denise",
+		lines = {
+			line(P, "Bless you for stopping. Three cabs went right past me like I was a lamppost."),
+			line(Y, "Long shift?"),
+			line(P, "Sixteen hours at Mercy General. They had me on two wards because Patrice called in sick again."),
+			line(P, "You know the worst part? Not the blood. The waiting rooms. Everybody looking at you like you know something."),
+			line(Y, "Do you?"),
+			line(P, "Sometimes. Mostly I know where the good coffee is and which doctors are pretending."),
+			line(P, "Had a boy in tonight, couldn't have been sixteen. Fell off a fire escape, he said. Fire escapes don't leave bruises like that."),
+			line(P, "His mother sat there the whole time holding his sneakers. Just holding them."),
+			line(P, "...Sorry. I don't usually talk this much. It's the quiet in here. Makes you spill."),
+		},
+		goodbye = { line(P, "This is me. Get yourself something to eat, you look worse than my patients.") },
+	},
+	{
+		id = "old_cabbie",
+		name = "Sal",
+		lines = {
+			line(P, "Huh. A checker cab. They still let these on the road?"),
+			line(Y, "Barely."),
+			line(P, "I drove one of these thirty-one years. Same garage on Delano. Number forty-four."),
+			line(P, "First week, a guy paid me in subway tokens. Forty of them. I still got some in a jar."),
+			line(Y, "Any advice?"),
+			line(P, "Never take the bridge after midnight, never argue about the route, and never eat the egg salad from the place by the depot."),
+			line(P, "And keep a twenty in your sock. Everybody gets robbed once. The twenty's so you can still get home after."),
+			line(P, "My wife used to wait up with the radio on. Said she could hear my voice in the static."),
+			line(P, "She's been gone four years. I still drive past the depot sometimes. Habit."),
+		},
+		goodbye = { line(P, "Right here's fine. And hey -- the sock. Don't forget the sock.") },
+	},
+	{
+		id = "trumpet",
+		name = "Andre",
+		lines = {
+			line(P, "Careful with the case, it's older than you. And worth more, probably."),
+			line(Y, "Gig tonight?"),
+			line(P, "Two sets at the Copper Room. Forty people, half of them asleep, the other half arguing about baseball."),
+			line(P, "But second set, the drummer and me locked in and the whole room just stopped breathing."),
+			line(P, "Four bars. That's what I live for. Four bars where everything makes sense."),
+			line(Y, "Worth it?"),
+			line(P, "Ask me on rent day and I'll tell you no. Ask me now and I'll tell you there's nothing else."),
+			line(P, "My father wanted me on the docks like him. Said music was for men who didn't want to sweat."),
+			line(P, "I sweat plenty, man. Just in a nicer shirt."),
+		},
+		goodbye = { line(P, "Here's me. Come by the Copper Room sometime. Tell 'em Andre said you're a critic, you get in free.") },
+	},
+	{
+		id = "first_job",
+		name = "Eli",
+		destination = { kind = "shops" },
+		lines = {
+			line(P, "Um, hi. Do I just tell you where? Sorry, I've never taken a cab before."),
+			line(Y, "That's how it works. Where to?"),
+			line(P, "Rosetti's Bakery, in the row of shops. I start at four. Night baker. Well, assistant to the night baker. Well, I sweep."),
+			line(P, "My mom made me wear my church shoes. They pinch like crazy."),
+			line(Y, "First jobs are like that."),
+			line(P, "Mr. Rosetti said if I'm good he'll teach me the bread. The real stuff, not the rolls."),
+			line(P, "I'm gonna save up and buy my mom a new radio. Hers only gets the ball game and the weather."),
+			line(P, "Is it weird I'm excited about sweeping? It feels weird."),
+			line(Y, "It's not weird."),
+		},
+		goodbye = { line(P, "This is it! Okay. Wish me luck. Actually don't, that's bad luck. Wish me -- whatever the opposite is.") },
+	},
+	{
+		id = "bride",
+		name = "Teresa",
+		lines = {
+			line(P, "Don't ask about the sash. Please. My sister made me wear it."),
+			line(Y, "'Bride to be.' Congratulations."),
+			line(P, "Tomorrow, eleven a.m., Saint Brendan's. If I survive tonight."),
+			line(P, "They took me to four bars. Four. I had one drink and spent the rest of the night holding Aunt Carla's purse."),
+			line(P, "Can I ask you something? You see a lot of people. Does anybody actually know if they're ready?"),
+			line(Y, "I think people decide to be."),
+			line(P, "Huh. That's actually really good. Are you a priest or something?"),
+			line(P, "Frankie's a good man. He's scared of pigeons and he cries at commercials. I love him so much it's stupid."),
+		},
+		goodbye = { line(P, "Okay. Home. Sleep. Married. Thank you, driver. I mean it.") },
+	},
+	{
+		id = "bodega",
+		name = "Hector",
+		lines = {
+			line(P, "Evening. Heading home from the shop. Late night -- inventory. Well, inventory and worrying."),
+			line(P, "Twenty years I've had the shop on Vail. Survived two floods, a fire and my brother-in-law."),
+			line(Y, "What's the worry?"),
+			line(P, "Couple of boys came by last week. Polite. Too polite. Said the neighbourhood's changing and I should think about protection."),
+			line(P, "Protection from what, I said. They smiled at me. That was the whole answer."),
+			line(P, "Kesting boys, Quarry boys, I can't tell them apart anymore. They all wear their fathers' coats."),
+			line(Y, "You going to pay?"),
+			line(P, "I have a daughter in nursing school. I'll do whatever keeps the lights on and the window in one piece."),
+			line(P, "Don't look at me like that in the mirror. You'd pay too."),
+		},
+		goodbye = { line(P, "Thank you. Stop by the shop on Vail sometime. Coffee's on me, as long as I still have a shop.") },
+	},
+	{
+		id = "chess",
+		name = "Frankie",
+		lines = {
+			line(P, "Took eleven dollars off a stockbroker tonight. Eleven! In this economy."),
+			line(Y, "Chess?"),
+			line(P, "Speed chess, Marrow Park, the table by the busted fountain. Two minutes a side. He thought he was Napoleon."),
+			line(P, "Rich guys always bring the queen out early. They can't help it. They want everybody to see the expensive piece."),
+			line(P, "You play? You should. It's the only fair thing in this city. Same pieces, same board."),
+			line(Y, "And you always win?"),
+			line(P, "I lose on purpose to the kids. You gotta let 'em taste it, or they never come back."),
+			line(P, "One of them, Jojo, he's got a real gift. I keep telling him, the board's a better place to spend your nights than a corner."),
+			line(P, "He doesn't listen. They never listen till it's too late to come back."),
+		},
+		goodbye = { line(P, "Right here. If you ever want to lose eleven dollars, you know where I am.") },
+	},
+	{
+		id = "fortune",
+		name = "Lucia",
+		lines = {
+			line(P, "Don't tell me where you're from. I already know. Somewhere small, with one traffic light."),
+			line(Y, "Close enough."),
+			line(P, "I read palms on Linden. Five dollars, ten if you want the good news."),
+			line(P, "Mostly I tell people what they already know. That's the secret. Nobody comes to hear something new."),
+			line(P, "A boy came in tonight, gold chain, green jacket. Wanted to know if he'd live to twenty-five."),
+			line(Y, "What did you tell him?"),
+			line(P, "That the lines on his hand were long. They were. Lines don't mean anything. But he walked out lighter."),
+			line(P, "Sometimes the lie is the medicine, driver. You'll learn that, doing this."),
+		},
+		goodbye = { line(P, "Here. And something for free: watch out for the man who tips too much.") },
+	},
+	{
+		id = "sanitation",
+		name = "Devon",
+		lines = {
+			line(P, "Morning. Or night. What is it? Doesn't matter, I start at five either way."),
+			line(P, "Sanitation. Route nine. You know how many bags one street puts out on a Tuesday?"),
+			line(Y, "Tell me."),
+			line(P, "Four hundred and twelve on Calloway last week. I counted 'cause I was bored. Four hundred twelve bags of people's lives."),
+			line(P, "You find stuff. Wedding albums. Trophies. A whole set of encyclopedias once, A through Q. Where'd R through Z go?"),
+			line(P, "Found a gun in a pizza box last month. Called it in. Took the cops four hours to show."),
+			line(P, "Nobody looks at the garbage man. Like nobody looks at the cab driver. We see everything and we're invisible."),
+			line(Y, "There's worse things to be."),
+			line(P, "Yeah. Invisible's safe. Invisible goes home at night."),
+		},
+		goodbye = { line(P, "Here's good. Hey, put your trash out by six on Thursdays. Help a guy out.") },
+	},
+	{
+		id = "widow_lilies",
+		name = "Rosa",
+		lines = {
+			line(P, "Mind the flowers, dear. They're for Saint Brendan's. The night vigil. I'll walk the last bit."),
+			line(Y, "Late for church."),
+			line(P, "Church doesn't close. That's the nice thing about it. Everything else does."),
+			line(P, "My husband Tomas used to drive me. Every Thursday for forty years. He'd wait outside with the newspaper."),
+			line(P, "He never came in. Said he and God had an understanding: he'd stay out of God's house and God would stay out of his garage."),
+			line(Y, "Sounds like a fair deal."),
+			line(P, "It was. God kept his end longer than Tomas did, though."),
+			line(P, "Lilies were his favourite. They smell like a funeral, I told him. He said, Rosa, everything does if you're old enough."),
+		},
+		goodbye = { line(P, "Here we are. Light a candle for somebody tonight, driver. Doesn't matter who. They'll know.") },
+	},
+	{
+		id = "boxer",
+		name = "Benny",
+		lines = {
+			line(P, "Don't mind the ice pack. Looks worse than it is. Everything looks worse than it is."),
+			line(Y, "Fight?"),
+			line(P, "Six rounds at the Foundry Street gym. Lost on points. The judges must've been watching a different fight."),
+			line(P, "Kid I fought was a Quarry kid. Half the crew in the front row, yelling. Felt like fighting the whole street."),
+			line(P, "My trainer says I've got one more year in me. Then it's the docks, or worse."),
+			line(Y, "What's worse?"),
+			line(P, "Collecting for somebody. That's where tough guys with bad knees end up. Knocking on doors."),
+			line(P, "I won't do it. My old man did it. I watched what it did to his hands. And his eyes."),
+			line(P, "So I'll fight. One more year. Maybe I win a few."),
+		},
+		goodbye = { line(P, "This is me. If you see my name on a poster, bet on me. Somebody's gotta.") },
+	},
+	{
+		id = "defender",
+		name = "Carmen",
+		lines = {
+			line(P, "Home, please. The courthouse annex can burn for one night."),
+			line(P, "Public defender. Forty-one cases. Forty-one people, one of me and a broken typewriter."),
+			line(Y, "Good day?"),
+			line(P, "Got a kid off tonight. Nineteen, wrong place, wrong jacket. The officer couldn't tell one green coat from another."),
+			line(P, "His grandmother hugged me so hard I think she cracked a rib. Worth it."),
+			line(Y, "And the bad cases?"),
+			line(P, "The bad ones are where I know they did it and I know why. Rent. Hunger. A crew that owns your block."),
+			line(P, "This city builds a trap and then acts surprised when people walk into it."),
+			line(P, "Sorry. Closing argument. Occupational hazard."),
+		},
+		goodbye = { line(P, "Here's fine. Don't get arrested, driver. I'm booked through March.") },
+	},
+	{
+		id = "magician",
+		name = "Orlando",
+		lines = {
+			line(P, "Is there a rabbit in your cab? I've lost a rabbit. White, answers to Houdini. Doesn't answer to anything, really."),
+			line(Y, "No rabbits."),
+			line(P, "Children's party. Nine kids. One of them knew every trick before I did it. Every one. That kid's going to be a cop."),
+			line(P, "Then the birthday boy's uncle asked if I could make his parole officer disappear. Ha. If only."),
+			line(P, "I used to play the Grand. Real stage, real curtains. Now it's basements and cake."),
+			line(Y, "Do you miss it?"),
+			line(P, "Every night. But here's the trick nobody tells you: the applause sounds the same. Big room or little room. Same sound."),
+			line(P, "...Oh. There he is. In my sleeve the whole time. Typical."),
+		},
+		goodbye = { line(P, "This is me. Pick a card, any card. ...No, I'm too tired. Just take the dollar.") },
+	},
+	{
+		id = "union",
+		name = "Walt",
+		destination = { slots = { 45, 46 } },
+		lines = {
+			line(P, "Down by the wharf, the union hall. Quick as you like."),
+			line(P, "Meeting ran long. Meetings always run long when somebody's lying."),
+			line(Y, "Who's lying?"),
+			line(P, "Everybody. Management, the city, the fellas in nice coats who started showing up at the docks with clipboards."),
+			line(P, "Everything this city has comes through the docks first. Whoever owns the docks owns the city."),
+			line(P, "Used to be honest men on the cranes. Now half the crates go missing and nobody saw nothing."),
+			line(P, "Quarry's been sniffing round the night shift. Paying cash for men to look the other way."),
+			line(Y, "And you?"),
+			line(P, "I've got two eyes and both of them work. That's going to be a problem for somebody."),
+		},
+		goodbye = { line(P, "Right here. If you hear my name on the news, it wasn't an accident. Remember that.") },
+	},
+	{
+		id = "swan",
+		name = "Mira",
+		lines = {
+			line(P, "Sorry, my feet are in a bucket of ice in my head. Ignore me if I wince."),
+			line(Y, "Dancer?"),
+			line(P, "Corps de ballet. I'm the swan third from the left. You'd never pick me out, which is sort of the point."),
+			line(P, "Tonight a principal sprained her ankle, and for one whole minute I thought they'd ask me. They asked Gretchen."),
+			line(P, "Gretchen. Gretchen who eats cheese before the performance."),
+			line(Y, "Your turn will come."),
+			line(P, "That's what everyone says. My knees say my turn's got about three years to show up."),
+			line(P, "But on stage, when the lights hit and the orchestra breathes in, you forget your knees. You forget the rent. You're just air."),
+		},
+		goodbye = { line(P, "This is me. If you see a swan limping up the stairs, mind your business.") },
+	},
+	{
+		id = "radio",
+		name = "Nate",
+		lines = {
+			line(P, "You're listening to -- sorry. Habit. I do the late show on WMRW. 'Nightowl Nate.' Maybe you've heard me."),
+			line(Y, "I've heard you."),
+			line(P, "Ha! A listener. In the wild. My mother and the guy at the parking garage, that's my audience."),
+			line(P, "People call in at three in the morning. Lonely people, mostly. They don't want a song. They want somebody to say their name back."),
+			line(P, "One lady calls every night, asks for the same song for her husband. He's been dead nine years. I play it every time."),
+			line(Y, "That's kind."),
+			line(P, "It's the only thing I do that matters. The rest is car commercials and the weather."),
+			line(P, "Last week a kid called from a payphone on Quarry Street, crying. Wouldn't say why. Then the line went dead."),
+			line(P, "I think about that kid every night when I sign off."),
+		},
+		goodbye = { line(P, "Here's me. Tune in. Call in. Say your name. I'll say it back.") },
+	},
+	{
+		id = "tourist",
+		name = "Gunnar",
+		destination = { lot = "THE PALISADE" },
+		lines = {
+			line(P, "Hello! I am going to the hotel... Palisade? Palisadio? The tall one. With the man in the hat at the door."),
+			line(Y, "The Palisade. Greaves Avenue."),
+			line(P, "Yes! You are a genius. Two hours I am walking. Your city has many streets and all of them look at me angry."),
+			line(P, "A man sold me a watch on the corner. It says 'Rollex'. With two L. This is good?"),
+			line(Y, "Two L's is... special."),
+			line(P, "Ha! I knew it. Special. I will give it to my brother. He is also special."),
+			line(P, "In my town there is one bakery, one church and one road. Here there are a hundred of each and none of them are open."),
+			line(P, "But the lights! At night your city looks like somebody spilled a jewellery box. My wife will not believe me."),
+		},
+		goodbye = { line(P, "Thank you, my friend! A big tip. Is this a big tip? ...Okay. A bigger one.") },
+	},
+	{
+		id = "leaving_home",
+		name = "Jasmine",
+		lines = {
+			line(P, "Drop me near the bus depot -- I'll walk the last block. I've got a five a.m. bus to State."),
+			line(Y, "College?"),
+			line(P, "First one in my family. My grandma cried for a week. My brother hasn't said a word to me."),
+			line(P, "He thinks I think I'm better than the block. I don't. I just want to see what's past the end of it."),
+			line(Y, "What's he do?"),
+			line(P, "He... runs errands. For people. On Kesting. Everybody knows what that means."),
+			line(P, "I begged him to come with me. Wash dishes up there, anything. He laughed like I'd told a joke."),
+			line(P, "If something happens to him while I'm gone, I don't know what I'll do."),
+			line(P, "He used to walk me to school. Held my hand crossing Linden till I was twelve and told him to quit it."),
+		},
+		goodbye = { line(P, "This is it. If you see a skinny kid in a green jacket on Kesting, tell him his sister says go home.") },
+	},
+	{
+		id = "comedian",
+		name = "Sid",
+		lines = {
+			line(P, "Quick question: on a scale of one to ten, how funny is a man falling down?"),
+			line(Y, "Depends on the man."),
+			line(P, "Correct! That's the answer! Why didn't anybody at the Basement know that?"),
+			line(P, "Twenty minutes. Twenty minutes of silence so loud I could hear the ice melting in their drinks."),
+			line(P, "One guy laughed. Once. At the wrong part. He was laughing at my shoes."),
+			line(P, "My mother says get a real job. I say, Ma, making strangers forget their lives for a minute is a real job."),
+			line(Y, "And she says?"),
+			line(P, "She says then make them forget faster. ...She's funnier than me. That's the real tragedy."),
+		},
+		goodbye = { line(P, "This is me. You're a great audience, you know that? Didn't say a word. Best crowd I've had all week.") },
+	},
+	{
+		id = "off_duty",
+		name = "Pruitt",
+		lines = {
+			line(P, "Off duty, before you ask. Relax your shoulders. Nobody's getting a ticket tonight."),
+			line(P, "Fourteenth precinct. Twenty-two years. I've watched this neighbourhood go round the drain three times."),
+			line(Y, "It's bad right now?"),
+			line(P, "Worse than the papers say. The Kesting crew and the Quarry crew are carving up corners like a Sunday roast."),
+			line(P, "And the brass want numbers. Arrests. They don't care if it's the right kid. They care if it's a kid."),
+			line(P, "I picked up a fourteen-year-old tonight, running a bag. You know what he said? 'It's this or nothing, officer.'"),
+			line(P, "I didn't have an answer for him. Twenty-two years, and I didn't have an answer."),
+			line(Y, "Is there one?"),
+			line(P, "If you find it, call the fourteenth and ask for Pruitt. I'll buy you dinner for a year."),
+		},
+		goodbye = { line(P, "Here. Keep your doors locked south of Linden. I mean that.") },
+	},
+	{
+		id = "ninety_one",
+		name = "Augustus",
+		lines = {
+			line(P, "Young man, did you know this street used to be farmland? My grandfather grew cabbages right where that bank is."),
+			line(Y, "Cabbages?"),
+			line(P, "Terrible cabbages. Bitter as a tax man. But they were his."),
+			line(P, "Then came the trolley, then the tenements, then the highway they never finished. Every one of them promised a better Marrow."),
+			line(P, "I'm ninety-one. I've seen four mayors promise to clean up these streets. Three of them went to prison."),
+			line(P, "The fourth is still mayor. Give him time."),
+			line(Y, "What was it like back then?"),
+			line(P, "Same as now. Young men fighting over a few blocks they'll never own. Only the guns got smaller and faster."),
+			line(P, "But the bread was better. I'll die on that hill."),
+		},
+		goodbye = { line(P, "Here we are. Thank you for listening to an old man. Most people just nod.") },
+	},
+	{
+		id = "waitress",
+		name = "Bev",
+		lines = {
+			line(P, "Oh, my feet. My feet, my feet. Don't mind me, I'm gonna moan quietly back here."),
+			line(Y, "Long night at the diner?"),
+			line(P, "Graveyard shift. At three a.m. you get two kinds of people, the sad ones and the hungry ones. Same people, usually."),
+			line(P, "Fella tonight ordered pancakes, ate one bite and cried for twenty minutes. Tipped me ten bucks."),
+			line(P, "Then two boys in green jackets came in, ordered nothing, sat in the back booth watching the door all night."),
+			line(P, "Manager said leave 'em alone. So I refilled their water every ten minutes like a good little ghost."),
+			line(Y, "Did anything happen?"),
+			line(P, "Nope. They left at four. But you feel it, you know? Like the air before a storm."),
+			line(P, "Anyway. Pancakes. Pancakes and somebody to sit with. That's all anybody wants."),
+		},
+		goodbye = { line(P, "This is me. Come by the diner sometime. I'll give you the good syrup, from the back.") },
+	},
+	{
+		id = "window_kid",
+		name = "Lou",
+		lines = {
+			line(P, "Okay, drive, drive. Not fast! Normal. Drive normal."),
+			line(Y, "Running from something?"),
+			line(P, "From my dad finding out I'm not asleep. I climbed out the window three hours ago. There was a party on Mercer."),
+			line(P, "If he wakes up I'm dead. Actually dead. He'll ground me till I'm forty."),
+			line(P, "There was this girl there, Vee. She talked to me for ten whole minutes. About records. She likes the same records!"),
+			line(Y, "Worth the risk?"),
+			line(P, "Completely. A hundred percent. ...Ninety percent. Ask me again if he catches me."),
+			line(P, "Can you let me out at the corner? Not the house. If he hears a car, he'll know."),
+		},
+		goodbye = { line(P, "Here. Perfect. You never saw me. I'm a ghost. A ghost who owes you a fare -- here.") },
+	},
+	{
+		id = "priest",
+		name = "Father Doyle",
+		lines = {
+			line(P, "Near Saint Brendan's, please -- I'll walk the last block. And don't worry, I don't preach in cabs. Much."),
+			line(Y, "Late night for a priest."),
+			line(P, "Last rites. An old man on Marsh Avenue. He wanted to confess sixty years in fifteen minutes."),
+			line(P, "He got through about forty. I told him God would take the rest on credit."),
+			line(Y, "Does He?"),
+			line(P, "Between you and me, I've never seen Him turn anyone away for being short."),
+			line(P, "The hard ones are the young men. They only come to me for funerals. Always somebody's friend, somebody's cousin."),
+			line(P, "I've buried six boys from Kesting and Quarry this year. Same age, same mothers crying. Different colour jackets."),
+			line(P, "If I could get them in one room, I'd lock the door till they remembered they were children once."),
+		},
+		goodbye = { line(P, "Here we are. Bless you, driver. Even if you didn't ask. Especially then.") },
+	},
+	{
+		id = "mechanic",
+		name = "Gina",
+		lines = {
+			line(P, "Drop me near the garage -- the one with the busted sign. It says 'GARA' now."),
+			line(P, "I'm a mechanic. Yes, a woman mechanic, yes, really, and no, I don't need carburetors explained to me."),
+			line(Y, "Wasn't going to."),
+			line(P, "Ha. Good. You'd be the first. My truck died on Quarry Street, so I'm calling a cab like a civilian."),
+			line(P, "This cab, by the way? Your engine's running rich. Hear that cough? That's money coming out your tailpipe."),
+			line(Y, "Can you fix it?"),
+			line(P, "I can fix anything with an engine. People, no. Engines, yes. Engines tell you what's wrong."),
+			line(P, "Bring it by on a Sunday. I'll do it for parts and a sandwich. A good sandwich. I'll know."),
+		},
+		goodbye = { line(P, "Here. And go easy on the clutch at lights. Your gearbox is begging you.") },
+	},
+	{
+		id = "seamstress",
+		name = "Linh",
+		lines = {
+			line(P, "Thank you. Careful of the bag -- a wedding dress for Saturday. Three hundred little pearls."),
+			line(P, "I sew all night. In the day the shop is too loud. At night it's just me and the radio and the needle."),
+			line(Y, "Who's it for?"),
+			line(P, "A girl from Ashby Houses. Her mother saved a long time. She came in with a coffee can full of quarters."),
+			line(P, "I didn't count it. You don't count something like that. I just said: enough. It is enough."),
+			line(P, "When I came to this city I had one suitcase and one dress. My own wedding dress. I sold it on the boat."),
+			line(Y, "Do you regret it?"),
+			line(P, "No. It paid for my first sewing machine. Every dress since is a little bit of that one."),
+		},
+		goodbye = { line(P, "Here, here. Thank you. If you ever marry, come see me. I make you a very good price.") },
+	},
+	{
+		id = "gambler",
+		name = "Vincent",
+		lines = {
+			line(P, "Drive, my friend. Anywhere far from the Neon Room."),
+			line(Y, "Bad night?"),
+			line(P, "I was up three hundred dollars at midnight. Three hundred! I had plans. Big plans. A coat."),
+			line(P, "Then the cards turned. They always turn. It's like the tide -- you know it's coming and you sit on the sand anyway."),
+			line(P, "Now I owe a man called Ziggy eighty bucks, and he does not seem like a patient man."),
+			line(Y, "Who's Ziggy?"),
+			line(P, "Collects for the Quarry crew, I think. Or wants people to think so. Either way, the knuckles are real."),
+			line(P, "Tomorrow I quit. I say that every night, but tomorrow I really mean it."),
+		},
+		goodbye = { line(P, "This is good. Here's your fare -- the last honest money I'll touch tonight.") },
+	},
+	{
+		id = "blue_door",
+		name = "Patrice",
+		destination = { slots = { 5, 7 } },
+		lines = {
+			line(P, "Near Kesting Street. The blue door by the corner. Please just drive. Don't be nice to me, I'll cry."),
+			line(Y, "Alright."),
+			line(P, "...My son lives there now. Not with me. With them. They gave him a room and a jacket and he thinks that's family."),
+			line(P, "He's fifteen. He used to collect bottle caps. He had a shoebox with three hundred bottle caps."),
+			line(P, "I go every Sunday with food. They let me leave it at the door. He doesn't come down."),
+			line(P, "Tonight somebody told me there was shooting on Quarry, and I need to see his window light up."),
+			line(Y, "I'll wait, if you want."),
+			line(P, "You don't have to. But... thank you. Nobody's offered to wait for anything in a long time."),
+		},
+		goodbye = { line(P, "There. That's his window. The light's on. Thank God. ...I'll walk from here. I need the air.") },
+	},
+	{
+		id = "bouncer",
+		name = "Marcel",
+		lines = {
+			line(P, "Off the clock, so you can stop staring at my neck. I don't bounce in cabs."),
+			line(P, "Eight years on the door at the Velvet. I've thrown out a senator, two boxers and a man dressed as a lobster."),
+			line(Y, "A lobster?"),
+			line(P, "Costume party. He bit somebody. Claws and all. Don't ask."),
+			line(P, "These days it's different. Kesting boys own the back tables. Quarry boys come in to see if they can get thrown out."),
+			line(P, "My job's to be a wall between them. A wall that gets paid on Fridays."),
+			line(P, "Last Saturday a kid pulled a blade in the coat check. Shaking so bad he dropped it."),
+			line(P, "I picked it up, handed it back handle first and told him to go home. He looked at me like I'd hit him."),
+		},
+		goodbye = { line(P, "Here's me. You ever need to get past a door in this city, say Marcel sent you.") },
+	},
+	{
+		id = "photographer",
+		name = "Ines",
+		lines = {
+			line(P, "Follow the sirens if you hear any. Kidding. Mostly. Press -- night desk at the Marrow Ledger."),
+			line(P, "I photograph what happens after midnight. Fires, crashes, the occasional raccoon in a church."),
+			line(Y, "And shootings?"),
+			line(P, "Lately, mostly shootings. Quarry and Kesting are keeping me in film."),
+			line(P, "Every scene has one person standing exactly where they were when it happened. Can't move. Can't leave."),
+			line(P, "I always shoot them. Not the body. The one who can't leave. That's the story."),
+			line(P, "My editor wants the body. Sells more papers. We fight about it every night."),
+			line(Y, "Who wins?"),
+			line(P, "The paper. But I keep the other negatives in a shoebox. Someday someone'll want to see who was left behind."),
+		},
+		goodbye = { line(P, "Here. If anything happens in front of your cab, don't be the one who can't leave. Drive.") },
+	},
+	{
+		id = "florist",
+		name = "Pietro",
+		destination = { slots = { 45, 46 } },
+		lines = {
+			line(P, "The flower market, down by the wharf! If I'm not there by four, the best roses go to the hotels."),
+			line(P, "Thirty years I sell flowers on Orchard Avenue. People think it's a soft job. It's a war, my friend."),
+			line(Y, "A flower war?"),
+			line(P, "Peonies in June. Everybody wants them, nobody has them. Men have fought over less. I've seen it."),
+			line(P, "You know who buys the most flowers? Not lovers. The sorry people. Husbands who forgot. Sons who stayed away."),
+			line(P, "And funerals. Lately so many. Young ones. I give the mothers a discount. I don't tell them. I just charge less."),
+			line(Y, "That's decent of you."),
+			line(P, "Decent is the cheapest thing in the world, my friend, and still nobody buys it."),
+		},
+		goodbye = { line(P, "Here! Perfect! Take this -- a carnation. For your dashboard. A cab should smell nice.") },
+	},
+	{
+		id = "professor",
+		name = "Professor Wren",
+		lines = {
+			line(P, "Do you know how many routes there are from here to where I'm going? I calculated it once. You'd be surprised."),
+			line(Y, "How many?"),
+			line(P, "Without doubling back? Thousands. And every driver takes the same one. Fascinating. Humans love a groove."),
+			line(P, "I teach mathematics at the city college. Nobody listens. They're all thinking about lunch, and each other."),
+			line(P, "I can't sleep, so I ride. Cabs, buses, the late trains. At night the city's an equation with the variables gone quiet."),
+			line(P, "There's a pattern to the sirens, you know. Kesting on odd nights, Quarry on even. Someone should tell the police."),
+			line(Y, "Have you?"),
+			line(P, "Twice. They thanked me very politely and lost my phone number."),
+		},
+		goodbye = { line(P, "This is me. Thank you. You took the groove, by the way. Everybody takes the groove.") },
+	},
+	{
+		id = "veteran",
+		name = "Carl",
+		lines = {
+			line(P, "Evening. ...Mind if we keep it quiet for a bit?"),
+			line(Y, "Sure."),
+			line(P, "...Thanks. City's loud. Some nights it's like the whole thing's yelling."),
+			line(P, "I was overseas four years. Came back and everybody wanted a story. I didn't have any good ones."),
+			line(P, "Know what helps? Somebody else driving. Just watching the lights go past."),
+			line(Y, "I can do that."),
+			line(P, "My nephew wants to join the Kesting crew. Says it's like the army. Brotherhood, he says."),
+			line(P, "I told him the army at least sends your mother a flag. Those boys send her nothing."),
+		},
+		goodbye = { line(P, "Here's good. Thanks for the quiet. Best twenty minutes I've had all week.") },
+	},
+	{
+		id = "line_cook",
+		name = "Arturo",
+		lines = {
+			line(P, "Smell that? That's me. Twelve hours at the grill. I am mostly onion now."),
+			line(P, "Lunetta's, on Tolland. Best veal in the city, worst manager in the world."),
+			line(Y, "What's wrong with him?"),
+			line(P, "He shouts. At the pans, at the dishes, at the picture of his own mother on the wall."),
+			line(P, "In my village, my grandmother cooked for fifty people on one fire. She never shouted. She just looked at you."),
+			line(P, "One look and you peeled the potatoes. Faster than any shouting."),
+			line(P, "Someday I open my own place. Six tables. Her recipes. No shouting, only looking."),
+			line(Y, "What will you call it?"),
+			line(P, "Her name. Concetta's. First meal free. Second meal, also free. Third meal, you pay double."),
+		},
+		goodbye = { line(P, "Here! Thank you, my friend. Concetta's -- remember it. In five years. Maybe ten.") },
+	},
+	{
+		id = "proposal",
+		name = "Kenny",
+		lines = {
+			line(P, "Can you just... drive for a bit? I've got money. I just can't go home yet."),
+			line(Y, "Rough night?"),
+			line(P, "I had a ring in my pocket. Had a whole speech. Wrote it on the back of a napkin."),
+			line(P, "Got down on one knee in the middle of the Rialto, right before the movie. She said, 'Kenny, get up, people are looking.'"),
+			line(P, "Not no. Not yes. 'People are looking.' What do I do with that?"),
+			line(Y, "Maybe ask somewhere quieter."),
+			line(P, "...Huh. She does hate crowds. She hates the Rialto, actually. Why did I pick the Rialto?"),
+			line(P, "Okay. Somewhere quiet. Somewhere she likes. The pier! She loves the pier."),
+		},
+		goodbye = { line(P, "Here's good. Thanks, man. You should do this professionally. Oh, wait. You kind of do.") },
+	},
+	{
+		id = "biscuit",
+		name = "Mrs. Feeney",
+		lines = {
+			line(P, "Is it alright if Biscuit sits on the seat? He won't shed. He'll shed. I'm sorry in advance."),
+			line(Y, "Biscuit's welcome."),
+			line(P, "He escaped tonight. Third time this month. Found him outside the butcher's on Vail, howling at the window like a tenor."),
+			line(P, "He's fourteen. In people years that's ninety-eight. He still thinks he can catch a bus."),
+			line(P, "My husband never liked him. Said a dog like that is just a cushion with opinions."),
+			line(Y, "Is your husband...?"),
+			line(P, "Oh, he's alive. Moved to his sister's in Florida. Biscuit and I won the apartment in the settlement."),
+			line(P, "Best deal I ever made. Biscuit doesn't snore. Well. Less."),
+		},
+		goodbye = { line(P, "Here we are. Say thank you, Biscuit. ...He says thank you. He's shy about it.") },
+	},
+	{
+		id = "jojo",
+		name = "Jojo",
+		destination = { avenue = -600, slots = { 35, 39 } },
+		lines = {
+			line(P, "Greaves Avenue, down by Mercer. And I'm paying, see? I got money. Real money."),
+			line(Y, "How old are you?"),
+			line(P, "Old enough. Fourteen. Almost fifteen. That's basically sixteen."),
+			line(P, "I'm just dropping something off for some guys. It's nothing. It's like being a mailman."),
+			line(P, "Frankie at the park says I could be a chess master. Every day he says it. You know what chess masters make? Nothing."),
+			line(Y, "Maybe Frankie's right about you."),
+			line(P, "Yeah, well, Frankie plays for quarters. These guys pay in twenties."),
+			line(P, "...Don't tell my mom. Seriously. She thinks I'm at Danny's."),
+		},
+		goodbye = { line(P, "Here. Keep the change, I'm rich. ...Hey. If Frankie asks, tell him I'm studying the Sicilian.") },
+	},
+	{
+		id = "cartoonist",
+		name = "Felix",
+		lines = {
+			line(P, "Careful! Those are pages. Twenty-two pages of the Crimson Comet, due at the printer by six."),
+			line(P, "I draw comics. The Comet fights crime with the power of being extremely fast and extremely polite."),
+			line(Y, "Does crime stand a chance?"),
+			line(P, "Not a chance. That's the nice thing about comics. The bad guys always lose by page twenty-two."),
+			line(P, "I base the villains on people from the neighbourhood. My landlord's the Rent Baron. He's never noticed."),
+			line(P, "Lately I've been drawing real stuff in the margins. Kids on corners. The burnt-out shop on Cutler."),
+			line(P, "My editor rubs it out. Says nobody wants real in a comic. Maybe he's right. Real doesn't end on page twenty-two."),
+		},
+		goodbye = { line(P, "Here! Thank you! If a cab driver ever shows up in the Comet, that's you. Heroic. Mostly.") },
+	},
+	{
+		id = "teacher",
+		name = "Miss Adair",
+		lines = {
+			line(P, "Don't mind the red pen. I'm grading back here. Thirty-four essays on 'What I Want To Be.'"),
+			line(Y, "What do they want to be?"),
+			line(P, "Astronaut, astronaut, basketball, astronaut, my mother, rich, astronaut."),
+			line(P, "One boy wrote 'alive at twenty.' Just that. Three words, and the whole page empty."),
+			line(P, "I gave him an A. What else do you give that? Then I sat in my car for an hour."),
+			line(Y, "What do you tell a kid like that?"),
+			line(P, "That he's smart. That the block isn't the world. That I'll write him a letter for any school he wants."),
+			line(P, "He looked at me like I was speaking French. But he kept the letter. Folded very small in his notebook. That's something."),
+		},
+		goodbye = { line(P, "Here's my building. Thank you. Back to the astronauts.") },
+	},
+	{
+		id = "museum_guard",
+		name = "Ozzie",
+		lines = {
+			line(P, "Museum staff door -- it's round the side, I'll walk it. I'm the night guard. Me and four hundred dead animals."),
+			line(Y, "Spooky?"),
+			line(P, "Nah. Best coworkers I ever had. Never late, never complain. The bear's a little judgmental."),
+			line(P, "There's a whale skeleton in there. Ninety feet. I eat my sandwich under it every night. Makes your problems feel small."),
+			line(P, "Kids come in on school trips and their faces -- man. You can't buy that face. That face is the whole point."),
+			line(Y, "You like the job."),
+			line(P, "Love it. Pays like garbage. But somebody's gotta keep the dinosaurs company. They had a rough few million years."),
+		},
+		goodbye = { line(P, "Here. Come by on a Sunday, I'll let you in the back. Say hi to the bear. He won't say it back.") },
+	},
+	{
+		id = "wrong_number",
+		name = "Gloria",
+		lines = {
+			line(P, "Can I tell you something embarrassing? I've been on the phone with the wrong man for six weeks."),
+			line(Y, "The wrong man?"),
+			line(P, "Wrong number. I was calling my cousin. Got a fellow called Leonard. We talked for two hours."),
+			line(P, "He calls every Tuesday now. He's a night watchman. Reads me poems off the back of cereal boxes."),
+			line(P, "Tonight we're meeting. In person. At a diner. What if he's ninety? What if he's twelve?"),
+			line(Y, "What if he's nice?"),
+			line(P, "...That's the scariest one, honestly. I don't know what to do with nice. I've never had any practice."),
+			line(P, "Do I look alright? Don't answer that. Yes. Answer it. No -- just drive."),
+		},
+		goodbye = { line(P, "Here. Okay. If I come running out in five minutes, keep the engine running.") },
+	},
+	{
+		id = "landlord",
+		name = "Mr. Gorski",
+		lines = {
+			line(P, "I own three buildings on Brine Street. Don't look impressed. They're falling down. Slowly. Like me."),
+			line(P, "Tonight a pipe burst in number twelve. Water through four floors. I was up to my knees in somebody's laundry."),
+			line(Y, "Tenants upset?"),
+			line(P, "Mrs. Albescu made me tea. In the middle of the flood. She made me tea and said 'sit down, you look terrible.'"),
+			line(P, "Forty years she's paid me rent, never once late. I raised it twice. I should've lowered it."),
+			line(P, "Now men come to my office with briefcases. Want to buy all three buildings. Cash. Today."),
+			line(Y, "Will you sell?"),
+			line(P, "Their friends are the kind who don't ask twice. I know who they work for. Everyone south of Linden does."),
+			line(P, "Mrs. Albescu would be on the street in a week. So no. I don't sell. Not today, anyway."),
+		},
+		goodbye = { line(P, "Here. If you ever need an apartment -- don't. Trust me. But if you do, call me.") },
+	},
+	{
+		id = "twins",
+		name = "Ada",
+		lines = {
+			line(P, "I just became an aunt. Twins! Twenty minutes ago! Two of them! My sister made two people!"),
+			line(Y, "Congratulations."),
+			line(P, "One of them looks exactly like our dad. Bald and furious. The other one looks like a potato. I love them so much."),
+			line(P, "My sister's husband fainted. Twice. Once for each baby. The nurses had a bet going."),
+			line(P, "Can you believe this city still makes babies? With everything. Sirens all night and still -- babies."),
+			line(Y, "What are their names?"),
+			line(P, "They haven't decided. I've suggested Ada and Ada. For some reason nobody's taking me seriously."),
+			line(P, "I'm going to teach them everything. How to ride the subway. How to haggle at the fish market. How to get out."),
+		},
+		goodbye = { line(P, "Here! Sorry, I've cried on your seat a bit. Happy crying. It counts as cleaning.") },
+	},
+}
+
+-- By id, for the client (FareService only sends which one).
+Conversations.BY_ID = {}
+for _, conversation in Conversations.LIST do
+	Conversations.BY_ID[conversation.id] = conversation
+end
+
+-- About how long (seconds) the lines take to say: Screen.say types each
+-- character (~0.033s a frame), holds the line ~0.02s a character more,
+-- then pauses. The goodbye doesn't count -- that's said once stopped.
+function Conversations.talkSeconds(conversation): number
+	local total = 0
+	for _, entry in conversation.lines do
+		total += #entry.text * 0.053 + 1.95
+	end
+	return total
+end
+
+-- How far through the ride each line comes in: spread evenly from the
+-- start to about nine tenths of the way, so the last one's said just
+-- before arriving.
+function Conversations.lineAt(index: number, count: number): number
+	if count <= 1 then
+		return 0
+	end
+	return (index - 1) / (count - 1) * 0.88
+end
+
+return Conversations

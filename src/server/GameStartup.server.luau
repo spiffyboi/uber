@@ -14,6 +14,8 @@ Players.CharacterAutoLoads = false
 
 local OpeningSetBuilder = require(script.Parent.OpeningSetBuilder)
 local TaxiOfficeBuilder = require(script.Parent.TaxiOfficeBuilder)
+local GunStoreBuilder = require(script.Parent.GunStoreBuilder)
+local ChapelBuilder = require(script.Parent.ChapelBuilder)
 local PedestrianSpawner = require(script.Parent.PedestrianSpawner)
 local TrafficSpawner = require(script.Parent.TrafficSpawner)
 
@@ -22,6 +24,14 @@ local TrafficSpawner = require(script.Parent.TrafficSpawner)
 -- those lights every frame -- is safe to start right after it.
 OpeningSetBuilder.build()
 TaxiOfficeBuilder.build()
+GunStoreBuilder.build()
+-- The chapel's only ever seen in one cutscene: if building it ever goes
+-- wrong, say so and carry on, rather than leave everyone stuck on the
+-- loading screen (which is what happened when its first version broke).
+local chapelOk, chapelError = pcall(ChapelBuilder.build)
+if not chapelOk then
+	warn("GameStartup: the chapel interior didn't build: " .. tostring(chapelError))
+end
 PedestrianSpawner.build()
 TrafficSpawner.build()
 

@@ -103,6 +103,13 @@ function Screen.setObjective(owner: string, value: string?)
 	refreshObjective()
 end
 
+-- During a cutscene (see Cutscene): only the subtitles, money and cards.
+function Screen.setCinematic(on: boolean)
+	objective.Visible = not on
+	timer.Visible = not on
+	meter.Visible = not on
+end
+
 -- ===== Talking =====
 
 local sayToken = 0
@@ -112,6 +119,10 @@ local sayToken = 0
 function Screen.say(speaker: string, line: string, color: Color3?)
 	sayToken += 1
 	local token = sayToken
+	-- For testing only: a "DebugSlowTalk" attribute on the player (set by
+	-- hand) holds every line that many times longer, so a cutscene's shots
+	-- can be looked at properly. Nothing in the game sets it.
+	local hold = tonumber(player:GetAttribute("DebugSlowTalk")) or 1
 	speakerTag.Text = speaker
 	speakerTag.TextColor3 = color or UiKit.STYLES.gold.fill
 	subtitle.Text = ""
@@ -122,7 +133,7 @@ function Screen.say(speaker: string, line: string, color: Color3?)
 		subtitle.Text = line:sub(1, i)
 		task.wait(0.025)
 	end
-	task.wait(1.6 + #line * 0.02)
+	task.wait((1.6 + #line * 0.02) * hold)
 	if token == sayToken then
 		subtitle.Text = ""
 		speakerTag.Text = ""
@@ -216,7 +227,15 @@ local cardTitle = outlined(card, 54, Color3.fromRGB(245, 240, 230), {
 	Size = UDim2.new(1, 0, 0, 62),
 	Font = Enum.Font.GothamBlack,
 	ZIndex = 5,
+	-- Shrinks to fit a long title (chapter 5's) rather than running off
+	-- the edges of the card.
+	TextScaled = true,
 })
+do
+	local fit = Instance.new("UITextSizeConstraint")
+	fit.MaxTextSize = 54
+	fit.Parent = cardTitle
+end
 local cardSubtitle = outlined(card, 18, Color3.fromRGB(200, 200, 205), {
 	Position = UDim2.fromOffset(0, 92),
 	Size = UDim2.new(1, 0, 0, 24),

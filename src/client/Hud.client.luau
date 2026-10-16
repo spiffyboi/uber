@@ -14,6 +14,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FareConfig = require(Shared:WaitForChild("FareConfig"))
+local Conversations = require(Shared:WaitForChild("Conversations"))
 local Phone = require(script.Parent.Phone)
 local MapView = require(script.Parent.MapView)
 local Navigation = require(script.Parent.Navigation)
@@ -89,6 +90,18 @@ updateCash()
 local function updateSaveState()
 	Phone.setSaveState(player:GetAttribute("SaveState"))
 end
+
+-- A bug test says so in the corner the whole time, so nobody mistakes it
+-- for their real game.
+if player:GetAttribute("GameMode") == "test" then
+	Screen.outlined(gui, 18, Color3.fromRGB(255, 120, 90), {
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.fromOffset(16, 10),
+		Size = UDim2.fromOffset(300, 22),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = `BUG TEST · chapter {player:GetAttribute("TestChapter") or "?"} · not saved`,
+	})
+end
 player:GetAttributeChangedSignal("SaveState"):Connect(updateSaveState)
 updateSaveState()
 
@@ -116,20 +129,22 @@ local function speakerName(fare, speaker: string): string
 	return speaker
 end
 
--- Plays a ride's conversation: each line once the cab's far enough along,
--- then -- once it's pulled up outside -- anything not said yet and the
--- goodbye, and then lets the server know they're getting out.
+-- Plays a ride's conversation (see Conversations): each line once the cab's
+-- far enough along, spread evenly over the ride, then -- once it's pulled up
+-- outside -- anything not said yet and the goodbye, and then lets the server
+-- know they're getting out.
 local function runRide(fare)
 	rideToken += 1
 	local token = rideToken
 	arrivedFlag = false
-	local lines = FareConfig.CHATTER[fare.chatter] or {}
-	local goodbye = FareConfig.ARRIVALS[fare.arrival] or {}
+	local conversation = Conversations.BY_ID[fare.conversation]
+	local lines = if conversation then conversation.lines else {}
+	local goodbye = if conversation then conversation.goodbye else {}
 	task.spawn(function()
 		local index = 1
 		while token == rideToken and index <= #lines do
 			local line = lines[index]
-			if arrivedFlag or progress(fare) >= line.at then
+			if arrivedFlag or progress(fare) >= Conversations.lineAt(index, #lines) then
 				Screen.say(speakerName(fare, line.speaker), line.text)
 				index += 1
 			else
@@ -260,7 +275,13 @@ end)
 
 Phone.addMessage("Mom", "Did you eat anything today? Call me when your shift's over. Love you.")
 Phone.show()
-Screen.setObjective("idle", "Cruise the city -- Dispatch will text you")
+-- Free Play is all fares; in the story, the next chapter says what to do.
+if player:GetAttribute("GameMode") == "free" then
+	Screen.setObjective("idle", "Cruise the city -- Dispatch will text you")
+	Phone.setDispatchIdle("No fares right now.", "Dispatch will text you when one comes in.")
+else
+	Phone.setDispatchIdle("No fares in the story.", "Ordinary fares are in Free Play, on the main menu.")
+end
 ready = true
 if pending then
 	handleUpdate(pending)

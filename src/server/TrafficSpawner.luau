@@ -20,7 +20,7 @@ local StreetGrid = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 
 local TrafficSpawner = {}
 
-local TRAFFIC_COUNT = 40
+local TRAFFIC_COUNT = 64
 local CRUISE_SPEED = 32 -- studs/second, a little under the player's top speed
 local TURN_SPEED = 12
 local ACCEL = 11
