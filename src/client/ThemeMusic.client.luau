@@ -56,7 +56,7 @@ local STUDIO_LOCAL_STINGERS = {
 -- (the motif itself is ~17 s and ~8 s; the rest is echo tail).
 local STINGER_DUCK = {
 	death = { factor = 0.12, hold = 20 },
-	omen = { factor = 0.45, hold = 10 },
+	omen = { factor = 0.12, hold = 22 },
 }
 local STINGER_VOLUME = 0.9
 
@@ -186,6 +186,13 @@ stingerGroup.Volume = STINGER_VOLUME
 stingerGroup.Parent = SoundService
 
 local stingerToken = 0
+local currentStinger: Sound? = nil
+local function fadeOutStinger(old: Sound)
+	TweenService:Create(old, TweenInfo.new(0.8), { Volume = 0 }):Play()
+	task.delay(0.9, function()
+		old:Destroy()
+	end)
+end
 local function playStinger(kind: string)
 	local id = resolveStinger(kind)
 	local duck = STINGER_DUCK[kind]
@@ -197,6 +204,7 @@ local function playStinger(kind: string)
 	local sound = Instance.new("Sound")
 	sound.Name = "Stinger_" .. kind
 	sound.SoundId = id
+	sound.Volume = 1
 	sound.SoundGroup = stingerGroup
 	sound.Parent = SoundService
 	local waited = os.clock()
@@ -208,6 +216,15 @@ local function playStinger(kind: string)
 		sound:Destroy()
 		return
 	end
+	-- Only one stinger at a time: a newer one takes over from the one playing.
+	if token ~= stingerToken then
+		sound:Destroy()
+		return
+	end
+	if currentStinger and currentStinger.Parent then
+		fadeOutStinger(currentStinger)
+	end
+	currentStinger = sound
 	stingerFactor = duck.factor
 	applyGroupVolume(0.6)
 	sound:Play()
