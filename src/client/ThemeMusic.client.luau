@@ -6,6 +6,9 @@
 --   dread   -- low tremolo strings and timpani; silent until the night turns
 --              (a storm, a story chapter, or ThemeDread set on the player)
 --
+-- Also the death motif, as stingers on request: set the player's "ThemeStinger"
+-- attribute to "death" or "omen" (see below).
+--
 -- Plays from the main menu on, and ducks under the story's cutscenes (the
 -- Letterbox bars from Cutscene.luau). The intro cutscene's own SCORE_ID in
 -- IntroCutscene.client is left alone so the two never play at once.
@@ -39,6 +42,24 @@ local STUDIO_LOCAL = {
 	dread = "rbxasset://sounds/uber/stem_dread_layer.wav",
 }
 
+-- The death motif ("The Last Fare" and its quieter, unresolved "Omen"): one-shot
+-- stingers, played on request. Same arrangement as the stems above.
+local UPLOADED_STINGERS = {
+	death = "rbxassetid://0",
+	omen = "rbxassetid://0",
+}
+local STUDIO_LOCAL_STINGERS = {
+	death = "rbxasset://sounds/uber/UberDeath_LastFare.wav",
+	omen = "rbxasset://sounds/uber/UberDeath_Omen.wav",
+}
+-- How far the looping score drops while each stinger plays, and for how long
+-- (the motif itself is ~17 s and ~8 s; the rest is echo tail).
+local STINGER_DUCK = {
+	death = { factor = 0.12, hold = 20 },
+	omen = { factor = 0.45, hold = 10 },
+}
+local STINGER_VOLUME = 0.9
+
 local MASTER_VOLUME = 0.55
 local CUTSCENE_DUCK = 0.3
 local STEMS = { "lead", "pad", "rhythm", "dread" }
@@ -50,6 +71,17 @@ local function resolve(stem: string): string?
 	end
 	if RunService:IsStudio() then
 		return STUDIO_LOCAL[stem]
+	end
+	return nil
+end
+
+local function resolveStinger(kind: string): string?
+	local uploaded = UPLOADED_STINGERS[kind]
+	if uploaded ~= "rbxassetid://0" then
+		return uploaded
+	end
+	if RunService:IsStudio() then
+		return STUDIO_LOCAL_STINGERS[kind]
 	end
 	return nil
 end
@@ -118,10 +150,17 @@ end
 -- Duck under the story's cutscenes. Cutscene.luau only creates its Letterbox
 -- gui once the intro is over, so this has to wait for it to turn up.
 local playerGui = player:WaitForChild("PlayerGui")
+local cutsceneFactor = 1
+local stingerFactor = 1
+local function applyGroupVolume(seconds: number)
+	TweenService:Create(group, TweenInfo.new(seconds, Enum.EasingStyle.Sine), {
+		Volume = MASTER_VOLUME * cutsceneFactor * stingerFactor,
+	}):Play()
+end
 local function watchLetterbox(letterbox: ScreenGui)
 	local function updateDuck()
-		local target = if letterbox.Enabled then CUTSCENE_DUCK else 1
-		TweenService:Create(group, TweenInfo.new(1.2, Enum.EasingStyle.Sine), { Volume = MASTER_VOLUME * target }):Play()
+		cutsceneFactor = if letterbox.Enabled then CUTSCENE_DUCK else 1
+		applyGroupVolume(1.2)
 	end
 	letterbox:GetPropertyChangedSignal("Enabled"):Connect(updateDuck)
 	updateDuck()
@@ -135,6 +174,67 @@ playerGui.ChildAdded:Connect(function(child)
 		watchLetterbox(child)
 	end
 end)
+
+-- The death motif. Anything can ask for it by setting the "ThemeStinger" attribute
+-- on the player to "death" (a death on screen: the meter stops, bells fall home
+-- to the tonic) or "omen" (a warning, the same three notes left hanging). Add a
+-- suffix after a colon so setting it twice in a row still registers, e.g.
+-- "death:1", "death:2". The loop underneath ducks while it plays.
+local stingerGroup = Instance.new("SoundGroup")
+stingerGroup.Name = "ScoreStinger"
+stingerGroup.Volume = STINGER_VOLUME
+stingerGroup.Parent = SoundService
+
+local stingerToken = 0
+local function playStinger(kind: string)
+	local id = resolveStinger(kind)
+	local duck = STINGER_DUCK[kind]
+	if not id or not duck then
+		return
+	end
+	stingerToken += 1
+	local token = stingerToken
+	local sound = Instance.new("Sound")
+	sound.Name = "Stinger_" .. kind
+	sound.SoundId = id
+	sound.SoundGroup = stingerGroup
+	sound.Parent = SoundService
+	local waited = os.clock()
+	while not sound.IsLoaded and os.clock() - waited < 10 do
+		task.wait(0.1)
+	end
+	if not sound.IsLoaded then
+		warn(`[ThemeMusic] couldn't load the {kind} stinger ({id})`)
+		sound:Destroy()
+		return
+	end
+	stingerFactor = duck.factor
+	applyGroupVolume(0.6)
+	sound:Play()
+	sound.Ended:Once(function()
+		sound:Destroy()
+	end)
+	task.delay(duck.hold, function()
+		-- A newer stinger takes over the ducking.
+		if token == stingerToken then
+			stingerFactor = 1
+			applyGroupVolume(4)
+		end
+	end)
+end
+
+local function onStingerAttribute()
+	local value = player:GetAttribute("ThemeStinger")
+	if typeof(value) ~= "string" then
+		return
+	end
+	local kind = string.match(value, "^(%a+)")
+	if kind then
+		task.spawn(playStinger, kind)
+	end
+end
+player:GetAttributeChangedSignal("ThemeStinger"):Connect(onStingerAttribute)
+onStingerAttribute()
 
 -- How dark the night is right now, 0 to 1. Anything can raise it by setting the
 -- "ThemeDread" attribute on the player; a storm and the story's chapters raise it too.
