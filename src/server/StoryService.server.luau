@@ -20,6 +20,8 @@ local Joints = require(Shared:WaitForChild("Joints"))
 local Routing = require(Shared:WaitForChild("Routing"))
 local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 local Passengers = require(script.Parent:WaitForChild("Passengers"))
+local ChapelBuilder = require(script.Parent:WaitForChild("ChapelBuilder"))
+local FlatBuilder = require(script.Parent:WaitForChild("FlatBuilder"))
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local storyUpdate = remotes:WaitForChild("StoryUpdate") :: RemoteEvent
@@ -46,6 +48,7 @@ type Run = {
 	chose: any?,
 	alley: any?, -- where the side-street scene's been set out (chapter 9)
 	extras: { Instance }?, -- the people and props in it
+	path: any?, -- the way a cutscene drives the cab (see drivePath)
 }
 
 local runs: { [Player]: Run } = {}
@@ -66,9 +69,29 @@ local function choicesOf(player: Player): { [string]: any }
 			if step.type == "choice" then
 				choices[step.key] = PlayerData.getChoice(player, step.key)
 			end
+			-- And the ones made on the move, in a ride's lines.
+			for _, line in step.lines or {} do
+				if line.choice then
+					choices[line.choice.key] = PlayerData.getChoice(player, line.choice.key)
+				end
+			end
 		end
 	end
 	return choices
+end
+
+-- Is there a choice to make, or a cutscene to sit through, in this ride's
+-- talk? (Then it can take a lot longer than usual.)
+local function slowTalk(step): boolean
+	if step.vision then
+		return true
+	end
+	for _, line in step.lines or {} do
+		if line.choice then
+			return true
+		end
+	end
+	return false
 end
 
 local function send(player: Player)
@@ -84,6 +107,7 @@ local function send(player: Player)
 			deadline = run.deadline,
 			amount = run.amount,
 			alley = run.alley,
+			path = run.path,
 		},
 	})
 end
@@ -202,7 +226,7 @@ local function cleanUp(run: Run)
 	for _, thing in run.extras or {} do
 		thing:Destroy()
 	end
-	run.extras, run.alley = nil, nil
+	run.extras, run.alley, run.path = nil, nil, nil
 end
 
 -- ===== The side street (chapter 9) =====
@@ -480,7 +504,7 @@ function handlers.ride(player, run, step)
 	end
 	run.deadline = nil
 	setPhase(player, run, "arrived")
-	waitContinue(player, run)
+	waitContinue(player, run, if slowTalk(step) then 300 else nil)
 end
 
 function handlers.talk(player, run)
@@ -528,12 +552,296 @@ end
 local SCENE_SETS = {
 	funeral = CityConfig.CHAPEL_ORIGIN,
 	gunstore = CityConfig.GUNSTORE_ORIGIN,
+	flat = CityConfig.FLAT_ORIGIN,
 }
 
+-- Which way a cab parked at `place`'s kerb faces: along the street, with
+-- the kerb on its right.
+local function kerbFacing(place): Vector3
+	local toKerb = flat(place.standing) - flat(place.stop)
+	return Vector3.yAxis:Cross(toKerb.Unit)
+end
+
+-- How high the cab's middle sits with its wheels on the road (the road's
+-- top is at 1 -- see CarSpawner, which rests it the same way): from wherever
+-- it is now, which may be up on a kerb.
+local function restingHeight(car: Model): number
+	local chassis = car.PrimaryPart :: BasePart
+	local lowest = math.huge
+	for _, part in car:GetDescendants() do
+		if part:IsA("BasePart") and part.CanCollide then
+			lowest = math.min(lowest, part.Position.Y - part.Size.Y / 2)
+		end
+	end
+	return 1.05 + (chassis.Position.Y - lowest)
+end
+
+-- Puts the cab where `chassisAt` says (anchored first: the engine off), and
+-- the player back in the driver's seat if they'd got out.
+local function moveCab(player: Player, chassisAt: CFrame)
+	local car = carOf(player)
+	local chassis = car and car.PrimaryPart
+	if not car or not chassis then
+		return
+	end
+	stopEngine(player)
+	chassis.Anchored = true
+	chassis.AssemblyLinearVelocity = Vector3.zero
+	local offset = chassis.CFrame:Inverse() * car:GetPivot()
+	car:PivotTo(chassisAt * offset)
+	local seat = car:FindFirstChild("DriveSeat") :: VehicleSeat?
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if seat and humanoid and humanoid.SeatPart ~= seat then
+		seat:Sit(humanoid)
+	end
+end
+
+-- `parkAt`: the cab back at that kerb, if it's wandered off (a scene that
+-- happens outside a building needs the cab outside it); `settle`: put it
+-- square at the kerb, wheels on the road, wherever it is.
+local function parkCab(player: Player, place, settle: boolean?)
+	local car = carOf(player)
+	local chassis = car and car.PrimaryPart
+	if not car or not chassis then
+		return
+	end
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	local seated = humanoid and humanoid.SeatPart == car:FindFirstChild("DriveSeat")
+	if not settle and seated and (flat(chassis.Position) - flat(place.stop)).Magnitude < 30 then
+		return
+	end
+	local stop = Vector3.new(place.stop.X, restingHeight(car), place.stop.Z)
+	moveCab(player, CFrame.lookAt(stop, stop + kerbFacing(place)))
+end
+
+-- ===== Driving in a cutscene =====
+-- A scene with `drive` has the cab drive itself (on the player's screen --
+-- see SelfDrive) along the route to `drive.to`, in the right-hand lane:
+-- all the way there, or (`length`) just that far, stopping where there's
+-- road enough ahead (`jam`: for a queue of traffic to sit in). The route's
+-- worked out here, so this end knows where the cab finishes, and the cab's
+-- put there once the scene's over.
+
+local JAM_ROOM = 48
+
+local function laneOffset(dir: Vector3): number
+	return if math.abs(dir.Z) > 0.9 then CityConfig.LANE_WIDTH * 1.5 else CityConfig.CROSS_STREET_WIDTH / 4
+end
+
+-- The route moved over into the right-hand lane: each stretch shifted to
+-- its right, the corners where the shifted stretches meet.
+local function inLane(route: { Vector3 }): { Vector3 }
+	local points = {}
+	local segments = {}
+	for i = 2, #route do
+		local a, b = flat(route[i - 1]), flat(route[i])
+		if (b - a).Magnitude > 0.5 then
+			table.insert(segments, { a = a, b = b })
+		end
+	end
+	for i, segment in segments do
+		local dir = (segment.b - segment.a).Unit
+		local right = Vector3.new(-dir.Z, 0, dir.X) * laneOffset(dir)
+		segment.right = right
+		if i == 1 then
+			table.insert(points, segment.a + right)
+		else
+			local previous = segments[i - 1]
+			local previousDir = (previous.b - previous.a).Unit
+			if previousDir:Dot(dir) > 0.99 then
+				-- Straight on through a junction: no corner.
+				table.insert(points, segment.a + right)
+			else
+				-- A turn: where this stretch and the last, both shifted, cross.
+				table.insert(points, segment.a + right + previous.right)
+			end
+		end
+	end
+	local last = segments[#segments]
+	if last then
+		table.insert(points, last.b + last.right)
+	end
+	return points
+end
+
+local function drivePath(player: Player, drive)
+	local car = carOf(player)
+	local chassis = car and car.PrimaryPart
+	if not chassis then
+		return nil
+	end
+	-- Driven at the height it sits on the road (not wherever it is: pulled up
+	-- on a kerb, it drove the whole way floating -- reported).
+	local y = restingHeight(car :: Model)
+	if not drive.length then
+		-- All the way, pulling in to the kerb the way the traffic on that side
+		-- goes: to a point back along the kerb first, then straight in. (Routed
+		-- straight to the stop, it came in from the far end and stopped facing
+		-- the wrong way -- the depot's gunman ended up behind the cab.)
+		local approach = drive.to.stop - kerbFacing(drive.to) * 40
+		local points = inLane(Routing.route(chassis.Position, approach))
+		if #points < 2 then
+			return nil
+		end
+		table.insert(points, flat(drive.to.stop))
+		return { points = points, y = y }
+	end
+	local route = Routing.route(chassis.Position, drive.to.stop)
+	local points = inLane(route)
+	if #points < 2 then
+		return nil
+	end
+	-- Only so far: end mid-stretch with room ahead.
+	local cut = { points[1] }
+	local walked = 0
+	for i = 2, #points do
+		local a, b = points[i - 1], points[i]
+		local length = (b - a).Magnitude
+		local latest = walked + length - (if drive.jam then JAM_ROOM else 0)
+		if drive.length <= latest then
+			local at = math.max(drive.length, walked)
+			table.insert(cut, a + (b - a).Unit * (at - walked))
+			return { points = cut, y = y, jam = drive.jam }
+		end
+		table.insert(cut, b)
+		walked += length
+	end
+	return { points = cut, y = y }
+end
+
+-- Where the cab ends up after a driving scene: the end of its path, facing
+-- along the last stretch.
+local function endOfPath(path): CFrame
+	local points = path.points
+	local last, before = points[#points], points[#points - 1]
+	local at = Vector3.new(last.X, path.y, last.Z)
+	local dir = flat(last - before)
+	return CFrame.lookAt(at, at + (if dir.Magnitude > 0.1 then dir.Unit else Vector3.zAxis))
+end
+
+-- ===== A scene's cast =====
+-- People a scene needs, put where it needs them (`cast` -- see
+-- StoryConfig): `who` (a character, spawned for it), or `passenger`
+-- (whoever's in the cab -- or was, before they went inside), at a named spot.
+-- `seated` sits them on what's there; `scale` makes them smaller (a child).
+-- What they then do is the player's own screen's business (see LateScenes).
+
+local function castSpot(name: string): CFrame?
+	local bus = CityConfig.DEPOT_BUS
+	local depot = StoryConfig.PLACES.depot
+	local home = StoryConfig.PLACES.rayHome
+	if name == "flatPhoto" then
+		return FlatBuilder.spot("photo")
+	elseif name == "flatKitchen" then
+		return FlatBuilder.spot("kitchen")
+	elseif name == "busGirl" then
+		-- On a road-side seat, turned to the window.
+		local seatTop = (bus * CFrame.new(-2.9, 1.55, 1.1)).Position
+		return CFrame.lookAt(seatTop, seatTop - bus.RightVector)
+	elseif name == "busMum" then
+		local seatTop = (bus * CFrame.new(-2.3, 1.55, 4.9)).Position
+		return CFrame.lookAt(seatTop, seatTop + bus.LookVector)
+	elseif name == "depotGunman" then
+		-- Round the corner, out of sight: on the Wharf St pavement, behind
+		-- the depot's ticket hall. (He runs round it -- see LateScenes.)
+		local _, far = CityConfig.lotZRange(CityConfig.DEPOT_LOT)
+		local toKerb = (flat(depot.standing) - flat(depot.stop)).Unit
+		local at = Vector3.new(depot.standing.X, 1.2, far - 3) + toKerb * 36
+		return CFrame.lookAt(at, at - toKerb)
+	elseif name == "rayStep" then
+		-- On the sidewalk by his front door, facing the road.
+		local toKerb = (flat(home.standing) - flat(home.stop)).Unit
+		local at = home.standing + toKerb * 7
+		return CFrame.lookAt(at, at - toKerb)
+	end
+	return nil
+end
+
+local function setCast(player: Player, run: Run, cast)
+	run.extras = run.extras or {}
+	for _, member in cast do
+		local spot = castSpot(member.at)
+		if not spot then
+			warn(`StoryService: no cast spot called {member.at}`)
+			continue
+		end
+		local npc: Model? = nil
+		if member.passenger then
+			npc = run.npc
+			if npc then
+				npc.Parent = workspace
+			end
+		elseif member.who then
+			local character = StoryConfig.CHARACTERS[member.who]
+			npc = Passengers.spawn(character.name, character.look, spot.Position, spot.Position + spot.LookVector)
+			table.insert(run.extras :: { Instance }, npc :: Model)
+		end
+		if not npc then
+			continue
+		end
+		-- Sent to the player whole and kept there, wherever they are: the
+		-- scene that uses them starts straight away, and the world streams in
+		-- around the player a bit at a time.
+		npc.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+		local animate = npc:FindFirstChild("Animate")
+		if animate and not member.passenger then
+			animate:Destroy()
+		end
+		if member.scale then
+			npc:ScaleTo(member.scale)
+		end
+		if member.seated then
+			local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart
+			root.Anchored = true
+			local height = ChapelBuilder.sitDown(npc)
+			npc:PivotTo(spot + Vector3.new(0, height, 0))
+		else
+			Passengers.place(npc, spot)
+		end
+	end
+end
+
+-- Ray, after the depot (chapter 10): slumped over the wheel of the cab, for
+-- anyone to see. (Sat where the driver sits, the cab's own seat being
+-- empty by then -- the player got out.)
+local function slumpAtWheel(player: Player, run: Run, who: string)
+	local car = carOf(player)
+	local seat = car and car:FindFirstChild("DriveSeat") :: BasePart?
+	local name = "Passenger_" .. StoryConfig.CHARACTERS[who].name
+	local npc = nil
+	for _, thing in run.extras or {} do
+		if thing.Name == name then
+			npc = thing
+		end
+	end
+	if not seat or not npc then
+		return
+	end
+	local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart
+	root.Anchored = true
+	local height = ChapelBuilder.sitDown(npc)
+	Joints.bend(npc, {
+		Waist = CFrame.Angles(math.rad(-38), 0, math.rad(8)),
+		Neck = CFrame.Angles(math.rad(-30), 0, math.rad(12)),
+		LeftShoulder = CFrame.Angles(math.rad(20), 0, 0),
+		RightShoulder = CFrame.Angles(math.rad(20), 0, 0),
+	})
+	-- (At the wheel, which is left of the seat's middle -- as LateScenes
+	-- sits him for the drive.)
+	npc:PivotTo(seat.CFrame * CFrame.new(-0.75, seat.Size.Y / 2 + height - 0.1, 0.1))
+end
+
 function handlers.scene(player, run, step)
+	if step.parkAt then
+		parkCab(player, step.parkAt, step.settle)
+	end
 	if step.killEngine then
 		stopEngine(player)
 	end
+	if step.cast then
+		setCast(player, run, step.cast)
+	end
+	run.path = if step.drive then drivePath(player, step.drive) else nil
 	local set = SCENE_SETS[step.scene]
 	if set then
 		pcall(function()
@@ -542,10 +850,98 @@ function handlers.scene(player, run, step)
 	end
 	setPhase(player, run, "playing")
 	waitContinue(player, run, 400)
+	if not alive(player, run) then
+		return
+	end
+	if run.path then
+		moveCab(player, endOfPath(run.path))
+		run.path = nil
+	end
 	if step.removePassenger and run.npc then
 		run.npc:Destroy()
 		run.npc = nil
 	end
+	if step.boardAfter and run.npc then
+		-- Back in the cab (they got in during the scene).
+		local car = carOf(player)
+		if car then
+			Passengers.board(run.npc, car, true)
+		end
+	end
+	if step.slump then
+		slumpAtWheel(player, run, step.slump)
+	end
+	if step.gives then
+		PlayerData.setChoice(player, "has" .. step.gives, true)
+	end
+	if step.startEngine then
+		local car = carOf(player)
+		local seat = car and car:FindFirstChild("DriveSeat") :: VehicleSeat?
+		if seat then
+			seat.Disabled = false
+		end
+	end
+end
+
+-- The passenger gets out and goes into the building (chapter 9's Teddy,
+-- into Quarry Houses). Kept, out of sight, for later: a scene's cast can
+-- bring them back.
+function handlers.goInside(player, run, step)
+	local place, npc = run.lastSpot, run.npc
+	if not place or not npc then
+		return
+	end
+	local door = Passengers.awayFrom(place.standing, place.stop, 9)
+	Passengers.getOut(npc, carOf(player), place.standing, door)
+	setPhase(player, run, "goingIn")
+	Passengers.walkTo(npc, door, 5)
+	npc.Parent = nil
+end
+
+-- Waiting outside (chapter 9): nothing, for `delay` seconds -- then someone
+-- (`who`) walks up the sidewalk past the cab and goes in the same door.
+-- Then the player's to go in after them: done when they say so (see
+-- Story.client).
+function handlers.lookout(player, run, step)
+	local place = run.lastSpot
+	if not place then
+		return
+	end
+	setPhase(player, run, "waiting")
+	local started = os.clock()
+	while alive(player, run) and os.clock() - started < (step.delay or 20) do
+		task.wait(0.25)
+	end
+	if not alive(player, run) then
+		return
+	end
+	local forward = kerbFacing(place)
+	local character = StoryConfig.CHARACTERS[step.who]
+	local from = place.standing - forward * 46
+	local walker = Passengers.spawn(character.name, character.look, from, from + forward)
+	run.extras = run.extras or {}
+	table.insert(run.extras :: { Instance }, walker)
+	local root = walker:FindFirstChild("HumanoidRootPart") :: BasePart
+	root.Anchored = false
+	root:SetNetworkOwner(nil)
+	local humanoid = walker:FindFirstChildOfClass("Humanoid") :: Humanoid
+	humanoid.WalkSpeed = 7
+	setPhase(player, run, "passing")
+	Passengers.walkTo(walker, place.standing + forward * 1.5, 12)
+	Passengers.walkTo(walker, Passengers.awayFrom(place.standing, place.stop, 9), 5)
+	walker:Destroy()
+	if not alive(player, run) then
+		return
+	end
+	setPhase(player, run, "prompt")
+	waitContinue(player, run, 900)
+end
+
+-- On foot, after the depot (chapter 10): the player's own to walk, until
+-- the client says it's time (see Story.client).
+function handlers.walk(player, run, step)
+	setPhase(player, run, "walking")
+	waitContinue(player, run, (step.seconds or 15) + 60)
 end
 
 -- Driving yourself somewhere: the same as a ride, with nobody aboard.
@@ -681,6 +1077,46 @@ function handlers.dropoff(player, run, step)
 	run.amount = pay
 	setPhase(player, run, "paid")
 	task.wait(1.5)
+	-- A cutscene of them going (Teddy, Okafor): the chapter waits for it.
+	if step.outro == "tower" or step.outro == "vanish" then
+		waitContinue(player, run, 40)
+	end
+end
+
+-- `linger` (chapter 7's Teddy): out of the cab, a few steps to the foot of
+-- the building, and stood there looking up at it -- for the rest of the
+-- chapter, rather than walking off.
+local dropoffAndGo = handlers.dropoff
+function handlers.dropoff(player, run, step)
+	local place = run.lastSpot
+	local npc = run.npc
+	if not (step.linger and npc and place) then
+		dropoffAndGo(player, run, step)
+		return
+	end
+	run.npc = nil
+	run.extras = run.extras or {}
+	table.insert(run.extras :: { Instance }, npc)
+	local car = carOf(player)
+	local foot = Passengers.awayFrom(place.standing, place.stop, 4)
+	task.spawn(function()
+		Passengers.getOut(npc, car, place.standing, foot)
+		Passengers.walkTo(npc, foot, 4)
+		local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root and npc.Parent then
+			root.Anchored = true
+			local face = foot + (flat(place.standing) - flat(place.stop)).Unit * 10
+			root.CFrame = CFrame.lookAt(root.Position, Vector3.new(face.X, root.Position.Y, face.Z))
+		end
+	end)
+	local pay = (if step.pay == "meter" then FareConfig.price(run.rideLength) else step.pay) + (step.tip or 0)
+	PlayerData.addCash(player, pay)
+	run.amount = pay
+	setPhase(player, run, "paid")
+	task.wait(1.5)
+	if step.outro then
+		waitContinue(player, run, 40)
+	end
 end
 
 function handlers.ending(player, run)
@@ -692,9 +1128,18 @@ end
 
 local startChapter: (Player, number) -> ()
 
+-- The sky a chapter (or a step in it) holds the city to (see
+-- WeatherService's WeatherForce); let go again when the chapter's over.
+local function holdWeather(weather: string?)
+	workspace:SetAttribute("WeatherForce", weather)
+end
+
 local function finish(player: Player, run: Run, completed: boolean)
 	if runs[player] ~= run then
 		return
+	end
+	if StoryConfig.CHAPTERS[run.chapter].weather then
+		holdWeather(nil)
 	end
 	cleanUp(run)
 	runs[player] = nil
@@ -744,6 +1189,9 @@ function startChapter(player: Player, index: number)
 	}
 	runs[player] = run
 	player:SetAttribute("Busy", "story")
+	if chapter.weather then
+		holdWeather(chapter.weather)
+	end
 	task.spawn(function()
 		for stepIndex, step in chapter.steps do
 			if not alive(player, run) then
@@ -756,6 +1204,9 @@ function startChapter(player: Player, index: number)
 			run.step = stepIndex
 			run.token = nextToken
 			run.amount = nil
+			if step.weather then
+				holdWeather(step.weather)
+			end
 			local ok, err = pcall(handlers[step.type], player, run, step)
 			if not ok then
 				warn(`StoryService: chapter {index} step {stepIndex} ({step.type}) failed: {err}`)
@@ -778,6 +1229,17 @@ storyAction.OnServerEvent:Connect(function(player, action, value)
 		local step = StoryConfig.CHAPTERS[run.chapter].steps[run.step]
 		if step.type == "choice" and step.options[value] then
 			run.chose = value
+		end
+	elseif action == "rideChoice" and run and typeof(value) == "table" then
+		-- A choice made on the move (see Story.client's playRide): which of
+		-- the ride's lines it is, and which option.
+		local step = StoryConfig.CHAPTERS[run.chapter].steps[run.step]
+		local line = step.type == "ride" and typeof(value.line) == "number" and step.lines and step.lines[value.line]
+		local choice = line and line.choice
+		local option = choice and typeof(value.option) == "number" and choice.options[value.option]
+		if option then
+			PlayerData.setChoice(player, choice.key, option.value)
+			send(player)
 		end
 	elseif action == "quit" and run then
 		-- Walking away from a chapter: it starts again from the top next time.

@@ -15,6 +15,13 @@
 --   funeral  -- chapter 9, Gil's funeral (a set under Larkin & Sons): his
 --               daughter at the piano, the driver shaking, going down.
 --   alley    -- chapter 9, mid-fare: a glance down a side street at Dez.
+--   vision   -- chapter 8, mid-fare: the rear-view mirror, and in it, for a
+--               moment, someone who isn't there (Gil, Dez).
+--   farewell -- chapters 7 and 8, at the kerb: the last words, in the
+--               back; then, as they get out, `tower` (Teddy at the foot of
+--               Quarry Houses, looking up) or `vanish` (Okafor, along the
+--               railings, and gone).
+--   dawn     -- the end of chapter 8: asleep at the wheel; morning.
 --   robbery -- chapter 2, the dead end down by the wharf. Outside, the cab
 --              under the lights as the engine dies; over Tommy's shoulder
 --              as the knife comes up to the driver's neck; on the driver;
@@ -29,10 +36,13 @@
 -- this player's screen. Shots are placed relative to the driver's seat, so
 -- they work wherever the cab stopped.
 
+local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local Joints = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Joints"))
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local Joints = require(Shared:WaitForChild("Joints"))
+local StoryConfig = require(Shared:WaitForChild("StoryConfig"))
 
 local Cutscene = require(script.Parent.Cutscene)
 local CarSystems = require(script.Parent.CarSystems)
@@ -482,8 +492,10 @@ local function pistolInHand(model: Model?): BasePart?
 		return nil
 	end
 	local pistol = makePistol()
-	-- The hand's -Y runs down the fingers: point the barrel that way.
-	pistol.CFrame = hand.CFrame * CFrame.new(0, -0.35, -0.05) * CFrame.Angles(math.rad(90), 0, 0)
+	-- The hand's -Y runs down the fingers: point the barrel (the pistol's
+	-- -Z) that way, the grip into the palm. (It was turned the other way:
+	-- the barrel back up the arm -- reported.)
+	pistol.CFrame = hand.CFrame * CFrame.new(0, -0.35, 0.05) * CFrame.Angles(math.rad(-90), 0, 0)
 	pistol.Anchored = false
 	local weld = Instance.new("WeldConstraint")
 	weld.Part0 = hand
@@ -821,7 +833,55 @@ local function aimFrom(gil: Model?): (Vector3, Vector3)
 	return eye, headOf(gil, fromSeat(1.1, 2.5, 3))
 end
 
-local function muzzleFlash(at: Vector3)
+-- A pistol shot (a free Creator Store sound -- "Makarov Pistol Gunshot",
+-- asset 800000246 -- checked live: it loads, two seconds long). Every gun in
+-- the story goes off with it. `at`: where it's heard from (on the camera if
+-- left out); `speed`: slower and lower for slow motion; `muffled`: through
+-- walls (chapter 4's window, upstairs).
+local GUNSHOT_ID = "rbxassetid://800000246"
+local function gunshot(at: Vector3?, speed: number?, muffled: boolean?)
+	local sound = Instance.new("Sound")
+	sound.SoundId = GUNSHOT_ID
+	sound.Volume = if muffled then 0.6 else 1.1
+	sound.PlaybackSpeed = speed or 1
+	sound.RollOffMinDistance = 20
+	sound.RollOffMaxDistance = 400
+	if muffled then
+		local eq = Instance.new("EqualizerSoundEffect")
+		eq.HighGain = -30
+		eq.MidGain = -12
+		eq.LowGain = 2
+		eq.Parent = sound
+	end
+	local holder: Instance = game:GetService("SoundService")
+	if at then
+		local spot = Instance.new("Part")
+		spot.Name = "GunshotSound"
+		spot.Size = Vector3.new(0.2, 0.2, 0.2)
+		spot.Transparency = 1
+		spot.Anchored = true
+		spot.CanCollide = false
+		spot.CanQuery = false
+		spot.CanTouch = false
+		spot.Position = at
+		spot.Parent = workspace
+		holder = spot
+		task.delay(4, function()
+			spot:Destroy()
+		end)
+	end
+	sound.Parent = holder
+	sound:Play()
+	if not at then
+		task.delay(4, function()
+			sound:Destroy()
+		end)
+	end
+end
+
+-- A shot: the flash at the muzzle, and the bang (`speed` as gunshot's).
+local function muzzleFlash(at: Vector3, speed: number?)
+	gunshot(at, speed)
 	local flash = Instance.new("Part")
 	flash.Shape = Enum.PartType.Ball
 	flash.Size = Vector3.new(0.5, 0.5, 0.5)
@@ -1156,8 +1216,14 @@ function StoryScenes.window(step, say: (any) -> (), stillOn: () -> boolean)
 end
 
 -- The shots, upstairs: the window flashes, the figure's gone, and a moment
--- later the lamp goes out.
+-- later the lamp goes out. (Heard through the walls either way.)
 function StoryScenes.windowGunfire()
+	task.spawn(function()
+		for _ = 1, 3 do
+			gunshot(if window.pane then window.pane.Position else nil, 0.95, true)
+			task.wait(0.31 + math.random() * 0.3)
+		end
+	end)
 	if not window.pane then
 		return
 	end
@@ -1952,8 +2018,625 @@ function StoryScenes.alley(alley, lines, say: (any) -> ())
 	Cutscene.finish()
 end
 
+-- ===== The mirror (chapters 7 and 8) =====
+-- The rear-view mirror: from up at the top of the windshield, looking back
+-- at whoever's in the back, with everything but a mirror-shaped strip of
+-- the screen blacked out. What's in it isn't always what's there: a
+-- `ghost` turns the passenger, on this screen only, into someone else --
+-- every rig in the game is the same shape, so who they are is their
+-- colours (see Passengers.spawn) -- sat bolt upright, under a colder light.
+
+local mirrorGui = Instance.new("ScreenGui")
+mirrorGui.Name = "MirrorMask"
+mirrorGui.IgnoreGuiInset = true
+mirrorGui.ResetOnSpawn = false
+-- Under the letterbox (its blackout covers this too, for a blink) and the
+-- subtitles.
+mirrorGui.DisplayOrder = 8
+mirrorGui.Enabled = false
+mirrorGui.Parent = player:WaitForChild("PlayerGui")
+do
+	local W, H, CY = 0.66, 0.3, 0.46
+	local function black(position: UDim2, size: UDim2)
+		local f = Instance.new("Frame")
+		f.BackgroundColor3 = Color3.new(0, 0, 0)
+		f.BorderSizePixel = 0
+		f.Position = position
+		f.Size = size
+		f.Parent = mirrorGui
+	end
+	black(UDim2.fromScale(0, 0), UDim2.fromScale(1, CY - H / 2))
+	black(UDim2.fromScale(0, CY + H / 2), UDim2.fromScale(1, 1 - CY - H / 2))
+	black(UDim2.fromScale(0, CY - H / 2), UDim2.fromScale((1 - W) / 2, H))
+	black(UDim2.fromScale((1 + W) / 2, CY - H / 2), UDim2.fromScale((1 - W) / 2, H))
+	-- The mirror's housing round the glass, and the glass's own faint grey.
+	local glass = Instance.new("Frame")
+	glass.AnchorPoint = Vector2.new(0.5, 0.5)
+	glass.Position = UDim2.fromScale(0.5, CY)
+	glass.Size = UDim2.fromScale(W, H)
+	glass.BackgroundColor3 = Color3.fromRGB(150, 160, 170)
+	glass.BackgroundTransparency = 0.93
+	glass.Parent = mirrorGui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 18)
+	corner.Parent = glass
+	local housing = Instance.new("UIStroke")
+	housing.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	housing.Color = Color3.fromRGB(22, 22, 24)
+	housing.Thickness = 10
+	housing.Parent = glass
+end
+
+local cab = {
+	ghost = nil :: { [BasePart]: Color3 }?,
+	asleep = nil :: (() -> ())?,
+	light = nil :: Folder?,
+	grade = nil :: ColorCorrectionEffect?,
+	props = {} :: { Instance },
+}
+
+-- Whoever's sat in the back of the cab right now.
+local function backSeat(): Model?
+	local car = workspace:FindFirstChild(player.Name .. "_Car")
+	local seat = car and car:FindFirstChild("PassengerSeat") :: BasePart?
+	if not seat then
+		return nil
+	end
+	for _, child in workspace:GetChildren() do
+		if child:IsA("Model") and child.Name:sub(1, 10) == "Passenger_" then
+			local root = child:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root and (root.Position - seat.Position).Magnitude < 4 then
+				return child
+			end
+		end
+	end
+	return nil
+end
+
+-- `who` (a character's id in StoryConfig, or nil to put them back) is
+-- who `model` looks like, on this screen.
+local function ghostAs(model: Model?, who: string?)
+	if cab.ghost then
+		for part, color in cab.ghost do
+			if part.Parent then
+				part.Color = color
+			end
+		end
+		cab.ghost = nil
+	end
+	local character = who and StoryConfig.CHARACTERS[who]
+	if not model or not character then
+		return
+	end
+	local saved = {}
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+			saved[part] = part.Color
+			if part.Name == "Head" then
+				part.Color = character.look.skin
+			elseif part.Name:find("Leg") or part.Name:find("Foot") then
+				part.Color = character.look.pants
+			else
+				part.Color = character.look.shirt
+			end
+		end
+	end
+	cab.ghost = saved
+end
+
+-- Asleep against the window: head over on the shoulder (every frame, over
+-- the sitting pose).
+local function setAsleep(model: Model?, on: boolean)
+	if cab.asleep then
+		cab.asleep()
+		cab.asleep = nil
+	end
+	local neck = on and Joints.find(model, "Neck") :: any
+	if not neck then
+		return
+	end
+	local connection = RunService.Stepped:Connect(function()
+		if neck.Parent then
+			neck.Transform = CFrame.Angles(math.rad(14), 0, math.rad(-28))
+		end
+	end)
+	cab.asleep = function()
+		connection:Disconnect()
+		if neck.Parent then
+			neck.Transform = CFrame.new()
+		end
+	end
+end
+
+-- Light in the cab -- on the driver, and on whoever's in the back -- so
+-- there's something to see in the mirror at night (first recording: in the
+-- rain, both were black shapes); colder in the back (`ghostly`) while
+-- someone's there who isn't.
+local function cabLight(on: boolean, ghostly: boolean?)
+	if not on then
+		if cab.light then
+			cab.light:Destroy()
+			cab.light = nil
+		end
+		return
+	end
+	if not cab.light then
+		local car = workspace:FindFirstChild(player.Name .. "_Car")
+		local chassis = car and (car :: Model).PrimaryPart
+		if not chassis then
+			return
+		end
+		local folder = Instance.new("Folder")
+		folder.Name = "CabLights"
+		for _, spot in { { "Front", CFrame.new(0.4, 3.2, -0.9) }, { "Back", CFrame.new(1.0, 3.2, 1.9) } } do
+			local a = Instance.new("Attachment")
+			a.Name = spot[1]
+			a.Parent = chassis
+			a.WorldCFrame = seatCFrame() * spot[2]
+			local light = Instance.new("PointLight")
+			light.Range = 6.5
+			light.Shadows = false
+			light.Parent = a
+			-- (Kept with the folder, so they all go together.)
+			local link = Instance.new("ObjectValue")
+			link.Value = a
+			link.Parent = folder
+			folder.Destroying:Connect(function()
+				a:Destroy()
+			end)
+		end
+		folder.Parent = script
+		cab.light = folder
+	end
+	for _, link in (cab.light :: Folder):GetChildren() do
+		local a = (link :: ObjectValue).Value
+		local light = a and a:FindFirstChildOfClass("PointLight")
+		if light then
+			if a.Name == "Back" and ghostly then
+				light.Color = Color3.fromRGB(170, 195, 255)
+				light.Brightness = 3.4
+			else
+				light.Color = Color3.fromRGB(255, 208, 165)
+				light.Brightness = 2.4
+			end
+		end
+	end
+end
+
+-- The picture drained and cold while it's all coming apart (`amount` 0 to
+-- 1; 0 takes it off).
+local function grade(amount: number)
+	if amount <= 0 then
+		if cab.grade then
+			cab.grade:Destroy()
+			cab.grade = nil
+		end
+		return
+	end
+	if not cab.grade then
+		local effect = Instance.new("ColorCorrectionEffect")
+		effect.Name = "VisionGrade"
+		effect.Parent = Lighting
+		cab.grade = effect
+	end
+	local effect = cab.grade :: ColorCorrectionEffect
+	-- (Not all the way to grey: who's in the back is their colours.)
+	TweenService:Create(effect, TweenInfo.new(0.4), {
+		Saturation = -0.45 * amount,
+		Contrast = 0.1 * amount,
+		TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(205, 220, 240), amount),
+	}):Play()
+end
+
+-- In the mirror: on whoever's in the back (`low`: on the seat itself, for
+-- when it's empty).
+local function mirrorShot(who: Model?, low: boolean?)
+	CarSystems.setDriverVisible(false)
+	mirrorGui.Enabled = true
+	Cutscene.look(function()
+		return fromSeat(1.0, 3.25, -1.45)
+	end, function()
+		if low or not who then
+			return fromSeat(1.1, 1.9, 3)
+		end
+		-- Head and shoulders, and a bit of the seat. (Wide, because only the
+		-- mirror's strip of the picture shows: at 30 the face filled it.)
+		return headOf(who, fromSeat(1.1, 2.5, 3)) + Vector3.new(0, -0.5, 0)
+	end, 70)
+end
+
+-- The shots these scenes use: the mirror, and the cab's usual ones.
+local function cabShot(name: string, who: Model?)
+	if name == "mirror" then
+		mirrorShot(who)
+		return
+	elseif name == "seat" then
+		mirrorShot(nil, true)
+		return
+	end
+	mirrorGui.Enabled = false
+	shot(name, who)
+end
+
+local function playCabLines(lines, who: Model?, say: (any) -> (), stillOn: () -> boolean)
+	local dark = false
+	for _, line in lines do
+		if not stillOn() then
+			break
+		end
+		if line.blink then
+			-- A blink: a moment of black, and on the other side of it...
+			Cutscene.black(true, 0.06)
+			task.wait(0.22)
+		end
+		if line.ghost then
+			ghostAs(who, if line.ghost == "none" then nil else line.ghost)
+			cabLight(true, line.ghost ~= "none")
+			grade(if line.ghost == "none" then 0.35 else 1)
+		end
+		if line.asleep then
+			setAsleep(who, true)
+		elseif line.ghost and line.ghost ~= "none" then
+			setAsleep(who, false)
+		end
+		cabShot(line.shot, who)
+		if line.blink or dark then
+			Cutscene.black(false, if dark then 0.5 else 0.1)
+			dark = false
+		end
+		if line.text then
+			say(line)
+		else
+			task.wait(line.beat or 1.5)
+		end
+		if line.action == "shutEyes" then
+			-- Eyes shut tight: to black, and held there.
+			Cutscene.black(true, 0.35)
+			task.wait(1.3)
+			dark = true
+		end
+	end
+end
+
+local function putCabBack()
+	ghostAs(nil, nil)
+	setAsleep(nil, false)
+	cabLight(false)
+	grade(0)
+	mirrorGui.Enabled = false
+	for _, prop in cab.props do
+		prop:Destroy()
+	end
+	cab.props = {}
+end
+
+-- Mid-ride (chapter 8): the mirror, and in it for a moment someone who
+-- isn't there. The talk's held meanwhile, and the cab rolls to a stop
+-- under it, as in any cutscene; then back to the road.
+function StoryScenes.vision(step, say: (any) -> (), stillOn: () -> boolean)
+	local who = backSeat()
+	Cutscene.begin()
+	cabLight(true)
+	grade(0.35)
+	playCabLines(step.lines, who, say, stillOn)
+	putCabBack()
+	Cutscene.finish()
+end
+
+-- At the kerb (chapters 7 and 8): the last words, from the back seat. Left
+-- open for the dropoff's outro (`tower` or `vanish`).
+function StoryScenes.farewell(step, say: (any) -> (), stillOn: () -> boolean)
+	local who = backSeat()
+	Cutscene.begin()
+	cabLight(true)
+	playCabLines(step.lines, who, say, stillOn)
+	cabLight(false)
+	mirrorGui.Enabled = false
+end
+
+-- The fare and a funeral card with Gil's picture, left on the back seat
+-- (chapter 7).
+local function cardOnSeat(): BasePart?
+	local car = workspace:FindFirstChild(player.Name .. "_Car")
+	local seat = car and car:FindFirstChild("PassengerSeat") :: BasePart?
+	if not seat then
+		return nil
+	end
+	local top = seat.CFrame * CFrame.new(0.3, seat.Size.Y / 2 + 0.03, -0.1) * CFrame.Angles(0, math.rad(20), 0)
+	local bill = Instance.new("Part")
+	bill.Name = "FareBill"
+	bill.Size = Vector3.new(0.75, 0.03, 0.34)
+	bill.Color = Color3.fromRGB(120, 150, 110)
+	bill.Material = Enum.Material.SmoothPlastic
+	bill.Anchored = false
+	bill.Parent = workspace
+	weldTo(bill, seat, seat.CFrame:ToObjectSpace(top * CFrame.Angles(0, math.rad(-12), 0)))
+	table.insert(cab.props, bill)
+	local card = Instance.new("Part")
+	card.Name = "FuneralCard"
+	card.Size = Vector3.new(0.5, 0.03, 0.8)
+	card.Color = Color3.fromRGB(236, 232, 222)
+	card.Material = Enum.Material.SmoothPlastic
+	card.Parent = workspace
+	weldTo(card, seat, seat.CFrame:ToObjectSpace(top * CFrame.new(0, 0.03, 0)))
+	table.insert(cab.props, card)
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Top
+	gui.CanvasSize = Vector2.new(100, 160)
+	gui.LightInfluence = 0.6
+	gui.Parent = card
+	local function label(y: number, h: number, size: number, text: string)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Position = UDim2.fromOffset(0, y)
+		l.Size = UDim2.new(1, 0, 0, h)
+		l.Font = Enum.Font.Garamond
+		l.TextSize = size
+		l.TextColor3 = Color3.fromRGB(40, 36, 32)
+		l.Text = text
+		l.Parent = gui
+	end
+	label(8, 16, 11, "IN LOVING MEMORY")
+	local photo = Instance.new("Frame")
+	photo.Position = UDim2.fromOffset(25, 30)
+	photo.Size = UDim2.fromOffset(50, 64)
+	photo.BackgroundColor3 = Color3.fromRGB(80, 74, 66)
+	photo.BorderSizePixel = 0
+	photo.Parent = gui
+	local face = Instance.new("Frame")
+	face.AnchorPoint = Vector2.new(0.5, 0)
+	face.Position = UDim2.new(0.5, 0, 0, 12)
+	face.Size = UDim2.fromOffset(24, 28)
+	face.BackgroundColor3 = StoryConfig.CHARACTERS.gil.look.skin
+	face.BorderSizePixel = 0
+	face.Parent = photo
+	label(100, 24, 22, "GIL")
+	label(126, 16, 11, "Father. Friend.")
+	return card
+end
+
+-- Chapter 7: Teddy out of the cab and stood at the foot of Quarry Houses
+-- (the server keeps him there -- see StoryService's `linger`), looking up
+-- at one lit window, twelve floors up. From across the street, tilting up
+-- from him to it. Then the driver; then the mirror, and the empty seat.
+function StoryScenes.tower(name: string?)
+	local teddy = if name then passenger(name) else nil
+	waitUntilOut(teddy)
+	task.wait(1.6)
+	local seatNow = seatCFrame()
+	-- Which side of the cab he's stood (the kerb side).
+	local teddyRoot = partOf(teddy, "HumanoidRootPart")
+	local side = if teddyRoot then (if seatNow:PointToObjectSpace(teddyRoot.Position).X >= 0 then 1 else -1) else (lastSeen.side or 1)
+	local out = (seatNow.RightVector * side) * Vector3.new(1, 0, 1)
+	out = if out.Magnitude > 0.1 then out.Unit else Vector3.xAxis
+	local base = seatNow.Position
+	local function teddyHead(): Vector3
+		return headOf(teddy, base + out * 9 + Vector3.new(0, 2, 0))
+	end
+	-- The window: on the face of the tower behind him, twelve floors up.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = {}
+	for _, thing in { workspace:FindFirstChild(player.Name .. "_Car"), teddy, player.Character } do
+		table.insert(ignore, thing)
+	end
+	params.FilterDescendantsInstances = ignore
+	local high = teddyHead() + Vector3.new(0, 40, 0)
+	local hit = workspace:Raycast(high - out * 4, out * 60, params)
+	local windowAt = if hit then hit.Position - out * 0.15 else high + out * 10
+	local window = Instance.new("Part")
+	window.Name = "TowerWindow"
+	window.Size = Vector3.new(3.2, 3.6, 0.2)
+	window.Material = Enum.Material.Neon
+	window.Color = Color3.fromRGB(255, 196, 120)
+	window.Anchored = true
+	window.CanCollide = false
+	window.CanQuery = false
+	window.CFrame = CFrame.lookAt(windowAt, windowAt - out)
+	window.Parent = workspace
+	table.insert(cab.props, window)
+
+	CarSystems.setDriverVisible(false)
+	mirrorGui.Enabled = false
+	-- Across the street and up it a way, so the cab's off to one side
+	-- rather than in front of him (first recording: it hid him).
+	local eye = base - out * 22 + seatNow.LookVector * 28 + Vector3.new(0, 2.5, 0)
+	Cutscene.dolly(function()
+		return CFrame.lookAt(eye, teddyHead())
+	end, function()
+		return CFrame.lookAt(eye, windowAt)
+	end, 6, 45)
+	task.wait(7.5)
+	shot("driver")
+	task.wait(2.4)
+	-- The mirror: the empty seat. Then turned round to it: the money he
+	-- left, folded round the card.
+	local card = cardOnSeat()
+	mirrorShot(nil, true)
+	task.wait(2.6)
+	mirrorGui.Enabled = false
+	if card then
+		Cutscene.look(function()
+			return card.Position + Vector3.new(0, 1.3, 0) + (seatCFrame().LookVector * -0.6)
+		end, function()
+			return card.Position
+		end, 48)
+		task.wait(3.6)
+	end
+	putCabBack()
+	Cutscene.finish()
+end
+
+-- Chapter 8: Okafor out at the railings and away along them in the rain --
+-- and, while we're watching, not there any more. Then the empty railings.
+function StoryScenes.vanish(name: string?)
+	local okafor = if name then passenger(name) else nil
+	mirrorGui.Enabled = false
+	waitUntilOut(okafor)
+	shot("away", okafor)
+	task.wait(3.6)
+	if okafor then
+		local started = os.clock()
+		while os.clock() - started < 1.8 and okafor.Parent do
+			local a = (os.clock() - started) / 1.8
+			for _, part in okafor:GetDescendants() do
+				if part:IsA("BasePart") then
+					part.LocalTransparencyModifier = a
+				end
+			end
+			RunService.RenderStepped:Wait()
+		end
+		setHidden(okafor, true)
+	end
+	task.wait(2.6)
+	putCabBack()
+	Cutscene.finish()
+end
+
+-- ===== Morning (the end of chapter 8) =====
+
+local morning = { saved = nil :: { [string]: any }? }
+
+local function setMorning(on: boolean)
+	if on and not morning.saved then
+		morning.saved = {
+			ClockTime = Lighting.ClockTime,
+			Brightness = Lighting.Brightness,
+			Ambient = Lighting.Ambient,
+			ExposureCompensation = Lighting.ExposureCompensation,
+		}
+		-- (Earlier than this the sun's barely up, and anything facing away
+		-- from it came out black -- chapter 10's front step, in a recording.)
+		Lighting.ClockTime = 7.1
+		Lighting.Brightness = 1.7
+		Lighting.Ambient = Color3.fromRGB(128, 126, 122)
+		Lighting.ExposureCompensation = 0.1
+		-- And no rain, a pale sky (see Weather.client).
+		Lighting:SetAttribute("Morning", 1)
+	elseif not on and morning.saved then
+		for key, value in morning.saved do
+			(Lighting :: any)[key] = value
+		end
+		morning.saved = nil
+		Lighting:SetAttribute("Morning", nil)
+	end
+end
+
+-- Asleep at the wheel at the pier railings, and waking in daylight: the
+-- first morning in the game. It stays morning till the next chapter (see
+-- endMorning).
+function StoryScenes.dawn(step, say: (any) -> (), stillOn: () -> boolean)
+	Cutscene.begin()
+	for _, line in step.lines do
+		if not stillOn() then
+			break
+		end
+		if line.shot == "black" then
+			Cutscene.black(true, 0)
+		elseif line.shot == "morning" then
+			-- The same cab, the same railings, from up the street: grey early
+			-- light, the rain stopped.
+			CarSystems.setDriverVisible(false)
+			mirrorGui.Enabled = false
+			Cutscene.look(function()
+				return fromSeat(-12, 4.5, -24)
+			end, function()
+				return fromSeat(0.5, 1.4, 1.5)
+			end, 55)
+			Cutscene.black(false, 2.5)
+		elseif line.shot == "mirror" then
+			mirrorShot(nil, true)
+		else
+			cabShot(line.shot)
+			if line.action == "wake" then
+				Cutscene.black(false, 0.6)
+			end
+		end
+		if line.action == "morning" then
+			setMorning(true)
+			Phone.setClock(6, 12)
+		end
+		if line.action == "eyesClosing" then
+			task.wait((line.beat or 3) * 0.55)
+			Cutscene.black(true, 1.6)
+			task.wait((line.beat or 3) * 0.45)
+		elseif line.action == "wake" then
+			-- Coming to with a start.
+			task.wait(0.15)
+			Screen.flash(Color3.new(1, 1, 1), 0.15, 0.4)
+			task.wait((line.beat or 3) - 0.15)
+		elseif line.text then
+			say(line)
+		else
+			task.wait(line.beat or 1.5)
+		end
+	end
+	mirrorGui.Enabled = false
+	Cutscene.finish()
+end
+
+-- Back to night (a chapter's starting, or the story's been left).
+function StoryScenes.endMorning()
+	setMorning(false)
+end
+
+-- ===== For the later chapters' scenes (see LateScenes) =====
+
+StoryScenes.kit = {
+	seatCFrame = seatCFrame,
+	fromSeat = fromSeat,
+	passenger = passenger,
+	partOf = partOf,
+	driverHead = driverHead,
+	headOf = headOf,
+	shot = shot,
+	setHidden = setHidden,
+	raiseArm = raiseArm,
+	weldTo = weldTo,
+	makePistol = makePistol,
+	placePistol = placePistol,
+	doorPocket = doorPocket,
+	glide = glide,
+	muzzleFlash = muzzleFlash,
+	gunshot = gunshot,
+	storeLighting = storeLighting,
+	backSeat = backSeat,
+	mirrorShot = mirrorShot,
+	cabLight = cabLight,
+	setMorning = setMorning,
+	playSound = playSound,
+	heights = heights,
+	SIT = SIT,
+	STAND = STAND,
+	WHEEL_SHOULDER = WHEEL_SHOULDER,
+	WHEEL_ELBOW = WHEEL_ELBOW,
+	hideMirror = function()
+		mirrorGui.Enabled = false
+	end,
+}
+
+-- Put-backs the later scenes add, run if a chapter's abandoned mid-scene.
+StoryScenes.onAbort = {} :: { () -> () }
+-- What's happened in a chapter's scenes that its later steps need to know
+-- (chapter 10: whether the gunman got you first -- see LateScenes' depot).
+StoryScenes.state = {} :: { [string]: any }
+-- Run when a chapter finishes with its last scene still on screen (chapter
+-- 10 ends on black): whatever puts the world back.
+StoryScenes.onChapterEnd = {} :: { () -> () }
+
+function StoryScenes.chapterEnded()
+	for _, fn in StoryScenes.onChapterEnd do
+		pcall(fn)
+	end
+	Cutscene.finish()
+end
+
 -- Something went wrong or the chapter was abandoned mid-scene.
 function StoryScenes.abort()
+	for _, fn in StoryScenes.onAbort do
+		pcall(fn)
+	end
+	putCabBack()
 	for _, scene in { robbery, contactScene } do
 		if scene.arm then
 			scene.arm()

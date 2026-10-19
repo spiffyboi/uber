@@ -9,6 +9,9 @@
 --   streets  -- the roads and sidewalks darken when wet and take a sheen,
 --               and puddles show up on the asphalt
 --   storm    -- every so often, lightning
+--   morning  -- the end of chapter 8 (see StoryScenes' dawn sets Lighting's
+--               "Morning" attribute, 0..1): the rain stopped and a pale,
+--               early sky, whatever the attributes say
 -- None of it runs while the camera's down in one of the sealed sets under
 -- the street (the cab office, the gun store, the chapel): those scenes light
 -- themselves, and it never rains indoors.
@@ -38,6 +41,15 @@ local WET = {
 	color = Color3.fromRGB(66, 70, 80),
 	outdoor = Color3.fromRGB(56, 61, 78),
 	saturation = -0.3,
+}
+-- Early morning, grey and cold, after a night of rain. (Hazy enough to
+-- wash the sky out: thinner, and it looked like a blue midday.)
+local MORNING = {
+	density = 0.46,
+	haze = 2.8,
+	color = Color3.fromRGB(198, 194, 188),
+	outdoor = Color3.fromRGB(150, 150, 156),
+	saturation = -0.2,
 }
 
 -- Below this the camera's in one of the sets under the street.
@@ -274,6 +286,9 @@ end
 RunService.RenderStepped:Connect(function()
 	local rain, overcast, wetness = number("Rain"), number("Overcast"), number("Wetness")
 	local underground = camera.CFrame.Position.Y < UNDERGROUND_Y
+	local morning = math.clamp(tonumber(Lighting:GetAttribute("Morning")) or 0, 0, 1)
+	rain *= 1 - morning
+	overcast *= 1 - morning * 0.5
 
 	-- Rain.
 	local centre = rainCentre()
@@ -302,13 +317,20 @@ RunService.RenderStepped:Connect(function()
 	atmosphere = atmosphere or Lighting:FindFirstChildOfClass("Atmosphere")
 	colorCorrection = colorCorrection or Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
 	local grey = math.clamp(overcast * 0.4 + rain * 0.6, 0, 1)
+	local function blend(key: string): any
+		local night = if typeof(DRY[key]) == "Color3" then DRY[key]:Lerp(WET[key], grey) else DRY[key] + (WET[key] - DRY[key]) * grey
+		if morning <= 0 then
+			return night
+		end
+		return if typeof(night) == "Color3" then night:Lerp(MORNING[key], morning) else night + (MORNING[key] - night) * morning
+	end
 	if atmosphere then
-		atmosphere.Density = DRY.density + (WET.density - DRY.density) * grey
-		atmosphere.Haze = DRY.haze + (WET.haze - DRY.haze) * grey
-		atmosphere.Color = DRY.color:Lerp(WET.color, grey)
+		atmosphere.Density = blend("density")
+		atmosphere.Haze = blend("haze")
+		atmosphere.Color = blend("color")
 	end
 	if colorCorrection then
-		colorCorrection.Saturation = DRY.saturation + (WET.saturation - DRY.saturation) * grey
+		colorCorrection.Saturation = blend("saturation")
 	end
 	clouds.Cover = 0.25 + overcast * 0.6
 	clouds.Density = 0.15 + overcast * 0.55
@@ -321,7 +343,7 @@ RunService.RenderStepped:Connect(function()
 	if os.clock() < flashUntil then
 		Lighting.OutdoorAmbient = Color3.fromRGB(190, 200, 230)
 	else
-		Lighting.OutdoorAmbient = DRY.outdoor:Lerp(WET.outdoor, grey)
+		Lighting.OutdoorAmbient = blend("outdoor")
 	end
 
 	-- Wet streets (only redone when it's changed enough to see).

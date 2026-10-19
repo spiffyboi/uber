@@ -33,6 +33,10 @@ local SPEAKER_COLORS = {
 	MINISTER = Color3.fromRGB(215, 205, 185),
 	TEDDY = Color3.fromRGB(215, 190, 150),
 	LOU = Color3.fromRGB(240, 220, 170),
+	CALDER = Color3.fromRGB(170, 192, 220),
+	JUNE = Color3.fromRGB(236, 172, 190),
+	OKAFOR = Color3.fromRGB(206, 186, 140),
+	MAN = Color3.fromRGB(200, 90, 96),
 }
 
 -- True while something (the side-street glimpse) has the screen and a
@@ -59,8 +63,14 @@ end
 local Screen = require(script.Parent.Screen)
 local Cutscene = require(script.Parent.Cutscene)
 local StoryScenes = require(script.Parent.StoryScenes)
+-- (Adds chapters 9 and 10's scenes to StoryScenes.)
+require(script.Parent.LateScenes)
 
 local choices: { [string]: any } = {}
+-- Choices made on this screen (on the move, in a ride -- see playRide),
+-- which win over an update from the server that hadn't heard of them yet.
+local chosenHere: { [string]: any } = {}
+local routeShown: { [number]: boolean } = {} -- askFirst rides told where to go
 local run = nil -- the chapter being played, as last heard from the server
 local seen: { [string]: boolean } = {}
 local lineToken = 0
@@ -109,7 +119,7 @@ if RunService:IsStudio() then
 			end
 		end, function()
 			return true
-		end)
+		end, run)
 	end)
 end
 
@@ -243,6 +253,41 @@ local function continueStep(token: number)
 	end
 end
 
+-- The way to a ride's stop, and what to do there.
+local function showRoute(step)
+	local what = cargo or aboard or "them"
+	local verb = if cargo and not aboard then "Deliver" else "Drop off"
+	if step.type == "drive" then
+		Navigation.setTarget(step.spot.stop, step.spot.name, RED)
+		setObjective(`Drive to {step.spot.name}`)
+		return
+	end
+	Navigation.setTarget(step.spot.stop, `{verb} {if cargo and not aboard then cargo else what}`, RED)
+	if step.timeLimit then
+		setObjective(`Get {what} to {step.spot.name} -- don't let them catch you`)
+	elseif cargo and not aboard then
+		setObjective(`Take {cargo} to {step.spot.name}`)
+	else
+		setObjective(`Take {what} to {step.spot.name}`)
+	end
+end
+
+-- A choice in the middle of a ride (one of its lines -- see StoryConfig):
+-- picked with the number keys, still driving.
+local function chooseOnTheMove(token: number, index: number, choice)
+	local texts = {}
+	for _, option in choice.options do
+		table.insert(texts, option.text)
+	end
+	local picked = Screen.choose(choice.prompt, texts)
+	local value = choice.options[picked].value
+	choices[choice.key] = value
+	chosenHere[choice.key] = value
+	if run and run.token == token then
+		storyAction:FireServer("rideChoice", { line = index, option = picked })
+	end
+end
+
 -- Lines said while stopped, then "done".
 local function playLines(token: number, lines)
 	lineToken += 1
@@ -265,22 +310,22 @@ end
 -- A ride's conversation: each line once the cab's far enough along (texts
 -- too), then -- once it's stopped at the other end -- anything not said yet
 -- and the arrival lines, then "done".
+-- (Whether a line applies is decided as it comes up, not at the start: a
+-- choice made earlier in the same ride can decide it.) A `vision` (chapter
+-- 8's mirror) plays once the cab's that far along -- or on arrival, if it
+-- got there first -- with the talk held while it's on.
 local function playRide(token: number, step)
 	lineToken += 1
 	local mine = lineToken
-	local lines = {}
-	for _, line in step.lines or {} do
-		if applies(line) then
-			table.insert(lines, line)
-		end
-	end
+	local lines = step.lines or {}
 	local texts = table.clone(step.texts or {})
+	local vision = step.vision
 	task.spawn(function()
 		local index = 1
 		local function arrived()
 			return arrivedToken == token
 		end
-		while mine == lineToken and (index <= #lines or not arrived()) do
+		while mine == lineToken and (index <= #lines or not arrived() or vision) do
 			while holdLines and mine == lineToken do
 				task.wait(0.1)
 			end
@@ -292,8 +337,32 @@ local function playRide(token: number, step)
 				end
 			end
 			local line = lines[index]
-			if line and (arrived() or p >= line.at) and (not arrived() or line.late or line.at <= p) then
-				say(line)
+			-- (Not till what comes before it's been said.)
+			if vision and (arrived() or (p >= vision.at and (not line or line.at >= vision.at))) then
+				local v = vision
+				vision = nil
+				holdLines = true
+				Screen.hush()
+				StoryScenes.vision(v, function(l)
+					if applies(l) then
+						say(l)
+					end
+				end, function()
+					return mine == lineToken
+				end)
+				holdLines = false
+			elseif line and not applies(line) then
+				index += 1
+			elseif line and (arrived() or p >= line.at) and (not arrived() or line.late or line.at <= p) then
+				if line.choice then
+					chooseOnTheMove(token, index, line.choice)
+				else
+					say(line)
+				end
+				if line.showRoute and not routeShown[token] and not arrived() then
+					routeShown[token] = true
+					showRoute(step)
+				end
 				index += 1
 			elseif line and arrived() then
 				-- Got there before an early line came up: skip it.
@@ -346,21 +415,12 @@ local function onStep(r, step, phase: string)
 		end
 	elseif kind == "ride" or kind == "drive" then
 		if phase == "riding" then
-			local what = cargo or aboard or "them"
-			local verb = if cargo and not aboard then "Deliver" else "Drop off"
-			if kind == "drive" then
-				Navigation.setTarget(step.spot.stop, step.spot.name, RED)
+			if step.askFirst and not routeShown[r.token] then
+				-- Nowhere to go till they've said where (see playRide).
+				Navigation.setTarget(nil)
+				setObjective(`Where to? Ask {aboard or "them"}.`)
 			else
-				Navigation.setTarget(step.spot.stop, `{verb} {if cargo and not aboard then cargo else what}`, RED)
-			end
-			if kind == "drive" then
-				setObjective(`Drive to {step.spot.name}`)
-			elseif step.timeLimit then
-				setObjective(`Get {what} to {step.spot.name} -- don't let them catch you`)
-			elseif cargo and not aboard then
-				setObjective(`Take {cargo} to {step.spot.name}`)
-			else
-				setObjective(`Take {what} to {step.spot.name}`)
+				showRoute(step)
 			end
 			meterOn = step.meter == true
 			if not seen[r.token .. ":rideStarted"] then
@@ -456,14 +516,111 @@ local function onStep(r, step, phase: string)
 			lineToken += 1
 			local token = r.token
 			task.spawn(function()
-				StoryScenes[step.scene](step, function(line)
+				-- If a scene breaks, put the screen back and carry on, rather
+				-- than leave the player stuck in it (seen once: frozen at
+				-- Ray's front step).
+				local ok, err = pcall(StoryScenes[step.scene], step, function(line)
 					if applies(line) then
 						say(line)
 					end
 				end, function()
 					return run ~= nil and run.token == token
-				end)
+				end, r)
+				if not ok then
+					warn(`Story: the {step.scene} scene broke: {err}`)
+					StoryScenes.abort()
+				end
 				continueStep(token)
+			end)
+		end
+	elseif kind == "goInside" then
+		if phase == "goingIn" then
+			Navigation.setTarget(nil)
+			setObjective(`{aboard or "They"} goes inside.`)
+		end
+	elseif kind == "lookout" then
+		-- Waiting outside (chapter 9): phone calls that ring out, a man
+		-- going in, and then the choice that isn't one.
+		local token = r.token
+		if phase == "waiting" then
+			Navigation.setTarget(nil)
+			setObjective(step.objective)
+			for _, call in step.calls or {} do
+				task.delay(call.at, function()
+					if run and run.token == token then
+						Phone.addMessage(call.from, "Incoming call...")
+						task.wait(7)
+						if run and run.token == token then
+							Phone.addMessage(call.from, "Missed call")
+						end
+					end
+				end)
+			end
+		elseif phase == "prompt" then
+			setObjective(step.prompt)
+			task.spawn(function()
+				Screen.choose("A man just went in after Teddy.", { step.prompt })
+				continueStep(token)
+			end)
+		end
+	elseif kind == "walk" then
+		-- On foot (chapter 10): the edges of the picture closing in, until
+		-- he's gone far enough, or long enough.
+		if phase == "walking" then
+			setObjective(nil)
+			Navigation.setTarget(nil)
+			local token = r.token
+			if StoryScenes.state.shotDown then
+				-- Never got up (see LateScenes' depot): nothing to walk.
+				continueStep(token)
+				return
+			end
+			task.spawn(function()
+				local gui = Instance.new("ScreenGui")
+				gui.Name = "Closing"
+				gui.IgnoreGuiInset = true
+				gui.ResetOnSpawn = false
+				gui.DisplayOrder = 8
+				gui.Parent = player:WaitForChild("PlayerGui")
+				local edges = {}
+				for _, edge in { { 0, 90 }, { 1, 270 }, { 2, 0 }, { 3, 180 } } do
+					local f = Instance.new("Frame")
+					f.BackgroundColor3 = Color3.new(0, 0, 0)
+					f.BorderSizePixel = 0
+					local vertical = edge[1] < 2
+					f.Size = if vertical then UDim2.fromScale(1, 0.5) else UDim2.fromScale(0.5, 1)
+					f.Position = if edge[1] == 0 then UDim2.fromScale(0, 0) elseif edge[1] == 1 then UDim2.fromScale(0, 0.5) elseif edge[1] == 2 then UDim2.fromScale(0, 0) else UDim2.fromScale(0.5, 0)
+					f.Parent = gui
+					local g = Instance.new("UIGradient")
+					g.Rotation = edge[2]
+					g.Transparency = NumberSequence.new(0, 1)
+					g.Parent = f
+					table.insert(edges, g)
+				end
+				local character = player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local from = if root then root.Position else Vector3.zero
+				local started = os.clock()
+				local seconds = step.seconds or 14
+				while run and run.token == token do
+					local t = (os.clock() - started) / seconds
+					local moved = if root then (root.Position - from).Magnitude else 0
+					local closing = math.clamp(math.max(t, moved / 30), 0, 1)
+					for _, g in edges do
+						g.Transparency = NumberSequence.new({
+							NumberSequenceKeypoint.new(0, 0.2 - 0.2 * closing),
+							NumberSequenceKeypoint.new(math.clamp(0.25 + closing * 0.6, 0, 0.99), 1),
+							NumberSequenceKeypoint.new(1, 1),
+						})
+					end
+					if closing >= 1 then
+						break
+					end
+					task.wait()
+				end
+				continueStep(token)
+				task.wait(1.5)
+				gui:Destroy()
 			end)
 		end
 	elseif kind == "purchase" then
@@ -511,8 +668,21 @@ local function onStep(r, step, phase: string)
 				Screen.showMoney(r.amount)
 				Phone.addEarning(step.note or chapterOf(r).title, r.amount)
 			end
+			if step.contact then
+				-- Her card, into the phone.
+				task.spawn(showNewContact, step.contact.name)
+			end
 			if step.outro == "walkAway" and Cutscene.isPlaying() and leaving then
 				task.spawn(StoryScenes.walkAway, leaving)
+			elseif step.outro == "tower" or step.outro == "vanish" then
+				-- Chapter 7's Teddy at the foot of the tower; chapter 8's
+				-- Okafor, gone along the railings (see StoryScenes). The
+				-- chapter waits for it.
+				local token = r.token
+				task.spawn(function()
+					StoryScenes[step.outro](leaving)
+					continueStep(token)
+				end)
 			end
 		end
 	elseif kind == "ending" then
@@ -525,6 +695,9 @@ end
 
 function handleUpdate(data)
 	choices = data.choices or choices
+	for key, value in chosenHere do
+		choices[key] = value
+	end
 	local r = data.run
 	local previous = run
 	run = r
@@ -545,6 +718,11 @@ function handleUpdate(data)
 			for _, step in chapter.steps do
 				endsOnCard = endsOnCard or step.type == "ending"
 			end
+			if completed then
+				-- Whatever the chapter's last scene left on screen, put back
+				-- (chapter 10 ends on black).
+				StoryScenes.chapterEnded()
+			end
 			if completed and not endsOnCard then
 				Screen.titleCard(`CHAPTER {previous.chapter} COMPLETE`, chapter.title:upper(), "The story carries on in a moment.", 3)
 			end
@@ -557,6 +735,17 @@ function handleUpdate(data)
 		-- A chapter starting.
 		stopEverything()
 		local chapter = chapterOf(r)
+		table.clear(StoryScenes.state)
+		-- (Chapter 8 ends in the morning; chapter 10 is one; any other
+		-- chapter's at night.) And the phone's clock, for the ones that say
+		-- what time it is.
+		StoryScenes.endMorning()
+		if chapter.morning then
+			StoryScenes.kit.setMorning(true)
+		end
+		if chapter.clock then
+			Phone.setClock(chapter.clock[1], chapter.clock[2])
+		end
 		Screen.titleCard(`{partTitle(chapter):upper()}  ·  CHAPTER {r.chapter}`, chapter.title:upper(), chapter.blurb, 3.5)
 		refreshStory()
 	end
@@ -598,6 +787,12 @@ function handleUpdate(data)
 				task.wait()
 			end
 		end)
+	end
+
+	-- A morning chapter stays morning, however it got started (seen once:
+	-- chapter 10 straight on from chapter 9 came up at night).
+	if chapterOf(r).morning and not game:GetService("Lighting"):GetAttribute("Morning") then
+		StoryScenes.kit.setMorning(true)
 	end
 
 	if r.deadline and r.phase == "riding" then

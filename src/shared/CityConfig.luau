@@ -206,7 +206,8 @@ CityConfig.LOTS = {
 	{ x = 300, index = 35, side = -1, kind = "highrise", name = "QUARRY HOUSES" },
 	{ x = 300, index = 39, side = 1, kind = "shops" },
 	{ x = 300, index = 42, side = -1, kind = "nightclub", name = "THE FURNACE" },
-	{ x = 300, index = 46, side = 1, kind = "shops" },
+	-- The bus depot, the edge of the city (chapter 10).
+	{ x = 300, index = 45, side = 1, kind = "busDepot", span = 2, name = "MARROW BUS DEPOT" },
 	{ x = -300, index = 32, side = -1, kind = "gunStore", name = "IRONSIDE ARMS" },
 	{ x = -300, index = 36, side = 1, kind = "highrise", name = "ASHBY HOUSES" },
 	{ x = -300, index = 40, side = -1, kind = "nightclub", name = "MOONGLOW" },
@@ -311,5 +312,36 @@ CityConfig.GUNSTORE_COUNTER = CityConfig.GUNSTORE_ORIGIN + Vector3.new(0, 0, 2)
 -- building. The origin is the middle of the floor; the doors are at the -Z
 -- end, the casket at the +Z end, the aisle down X = 0.
 CityConfig.CHAPEL_ORIGIN = Vector3.new(345, -70, CityConfig.blockZ(33))
+
+-- Twelve floors up in Quarry Houses on Calloway: Vance's mother's flat, and
+-- the stairwell down from it (chapter 9 -- see FlatBuilder and LateScenes).
+-- Sealed sets under the tower, like the chapel. The flat's origin is the
+-- middle of its floor: the front door in the -Z wall, toward -X; the
+-- kitchen door in the +X wall; the sideboard with the family photograph
+-- against the +Z wall. The stairwell's origin is its top landing's floor,
+-- the flights going down from there.
+CityConfig.FLAT_ORIGIN = Vector3.new(256, -70, CityConfig.blockZ(35))
+CityConfig.STAIRS_ORIGIN = CityConfig.FLAT_ORIGIN + Vector3.new(28, 0, 0)
+
+-- The bus depot on Calloway, down by the wharf (chapter 10 -- see
+-- DistrictBuilder's buildBusDepot). The upstate bus waits side-on to the
+-- street in the forecourt, facing the way it'll leave (-Z): `DEPOT_BUS` is
+-- the middle of its floor. Its windows look out over the sidewalk at the
+-- road.
+do
+	local depot = nil
+	for _, lot in CityConfig.LOTS do
+		if lot.kind == "busDepot" then
+			depot = lot
+		end
+	end
+	local near, far = CityConfig.lotZRange(depot)
+	CityConfig.DEPOT_LOT = depot
+	CityConfig.DEPOT_BUS = CFrame.lookAt(
+		Vector3.new(depot.x + depot.side * (CityConfig.BUILDING_EDGE + 5.5), 1.2 + 2.6, (near + far) / 2),
+		Vector3.new(depot.x + depot.side * (CityConfig.BUILDING_EDGE + 5.5), 1.2 + 2.6, (near + far) / 2 - 1)
+	)
+	CityConfig.DEPOT_BUS_SIZE = Vector3.new(9, 9, 32)
+end
 
 return CityConfig

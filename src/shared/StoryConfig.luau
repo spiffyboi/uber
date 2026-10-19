@@ -28,6 +28,14 @@
 --               the step, even if the cab gets there early), `arrival` once
 --               stopped. `texts` arrive on the phone along the way.
 --               `timeLimit` makes it a race (run out and it starts over).
+--               A line with `choice = {key, prompt, options}` (and no
+--               speaker) is a choice made on the move, remembered as `key`
+--               like a choice step's; the lines after it can depend on it.
+--               `askFirst`: no route until a line with `showRoute` has
+--               been said (the passenger says where). `vision`: partway
+--               along (`at`), a cutscene in the mirror (see StoryScenes'
+--               vision) -- `lines` as a scene's, with `ghost` naming who
+--               the passenger looks like in it.
 --   talk     -- lines said while stopped
 --   choice   -- the player picks what to say; remembered as `key`
 --   robbery  -- the passenger takes `take` dollars and runs (a cutscene)
@@ -42,10 +50,13 @@
 --   handoff  -- stop at `spot` and hand it to someone waiting there
 --   dropoff  -- the passenger gets out and pays: `pay` dollars, or the
 --               meter for the last ride (`pay = "meter"`) plus `tip`;
---               `outro` ends a cutscene with them walking off
+--               `outro` ends a cutscene with them walking off (or, with
+--               `linger`, walking to the building and staying there);
+--               `contact` puts them in the phone
 --   ending   -- a title card ({title, subtitle})
 -- Any step (or line) with `when = {choice = key, is = value}` only happens
--- if that's what was chosen.
+-- if that's what was chosen. A chapter's `weather` holds the sky to that
+-- (see WeatherService) for as long as it runs; a step's changes it there.
 --
 -- All dialogue is original to this game.
 
@@ -107,6 +118,48 @@ StoryConfig.CHARACTERS = {
 		name = "Alleyman",
 		look = { skin = Color3.fromRGB(185, 150, 122), shirt = Color3.fromRGB(26, 24, 26), pants = Color3.fromRGB(20, 20, 22) },
 	},
+	-- Gil's oldest friend (chapter 7), in the same coat as at the funeral
+	-- (see ChapelBuilder).
+	teddy = {
+		name = "Teddy",
+		look = { skin = Color3.fromRGB(196, 150, 118), shirt = Color3.fromRGB(58, 52, 46), pants = Color3.fromRGB(30, 30, 34) },
+	},
+	-- A detective (chapter 7), in a grey raincoat.
+	calder = {
+		name = "Calder",
+		look = { skin = Color3.fromRGB(160, 120, 95), shirt = Color3.fromRGB(122, 120, 114), pants = Color3.fromRGB(38, 38, 44) },
+	},
+	-- A nurse coming off nights (chapter 8): an anorak over her scrubs.
+	june = {
+		name = "June",
+		look = { skin = Color3.fromRGB(225, 190, 160), shirt = Color3.fromRGB(46, 58, 82), pants = Color3.fromRGB(70, 128, 132) },
+	},
+	-- The man who goes in after Teddy (chapter 9): Quarry maroon, a knife.
+	knifeman = {
+		name = "KnifeMan",
+		look = { skin = Color3.fromRGB(185, 150, 122), shirt = Color3.fromRGB(80, 22, 30), pants = Color3.fromRGB(24, 24, 28) },
+	},
+	-- The man at the depot (chapter 10). Nobody says who sent him.
+	gunman = {
+		name = "Gunman",
+		look = { skin = Color3.fromRGB(205, 165, 130), shirt = Color3.fromRGB(34, 34, 38), pants = Color3.fromRGB(26, 26, 30) },
+	},
+	-- Ray's wife and daughter, on the upstate bus (chapter 10). The girl's
+	-- in her green coat -- the one the felt leaves were glued to.
+	raywife = {
+		name = "Marie",
+		look = { skin = Color3.fromRGB(160, 118, 90), shirt = Color3.fromRGB(150, 62, 72), pants = Color3.fromRGB(40, 40, 48) },
+	},
+	raygirl = {
+		name = "Rosie",
+		look = { skin = Color3.fromRGB(150, 108, 80), shirt = Color3.fromRGB(64, 128, 66), pants = Color3.fromRGB(40, 40, 48) },
+	},
+	-- An old man who doesn't know where he's going (chapter 8). His good
+	-- coat.
+	okafor = {
+		name = "Okafor",
+		look = { skin = Color3.fromRGB(78, 54, 42), shirt = Color3.fromRGB(92, 72, 50), pants = Color3.fromRGB(40, 36, 34) },
+	},
 }
 
 -- ===== Places =====
@@ -140,6 +193,15 @@ local PLACES = {
 	pier = spot("Pier Park, Dunmore Ave", DUNMORE, 32, -1),
 	chapel = spot("Larkin & Sons, Calloway Ave", CALLOWAY, 33, 1),
 	harborView = spot("Harbor View, Dunmore Ave", DUNMORE, 45, 1),
+	bijou = spot("The Bijou, Marrow St", MARROW, 43, -1),
+	lyric = spot("The Lyric, Greaves Ave", GREAVES, 22, 1),
+	ashbyHouses = spot("Ashby Houses, Ashby Ave", ASHBY, 36, 1),
+	ashford = spot("The Ashford, Calloway Ave", CALLOWAY, 4, 1),
+	embassy = spot("The Embassy, Dunmore Ave", DUNMORE, 21, -1),
+	orchard = spot("Orchard Ave, off Ashby", ASHBY, 9, -1),
+	greavesPark = spot("Greaves Park, Greaves Ave", GREAVES, 19, -1),
+	-- Beside the upstate bus (see CityConfig.DEPOT_BUS).
+	depot = spot("Marrow Bus Depot, Calloway Ave", CALLOWAY, 45, 1, -16),
 }
 StoryConfig.PLACES = PLACES
 
@@ -697,6 +759,632 @@ StoryConfig.CHAPTERS = {
 				},
 			},
 			{ type = "text", from = "Dispatch", text = "Quiet night. Head in whenever you like." },
+		},
+	},
+
+	-- 7. Two fares, and both of them know. Detective Calder, who takes the
+	-- long way to Dez's old corner and asks where you were; then Teddy, from
+	-- the funeral, who knows what car he's sitting in -- and wants a ride on
+	-- Friday.
+	{
+		id = "billandchain",
+		part = 2,
+		title = "Bill and Chain",
+		blurb = "A lady at the Bijou asked for whoever drives nights. Then an old man from the funeral.",
+		unlockText = { from = "Mom", text = "I lit a candle for your father at St. Brigid's. I lit one for you too. I don't know why. Call me." },
+		steps = {
+			{ type = "text", from = "Dispatch", text = "Pickup outside the Bijou on Marrow St. Lady asked for \"whoever drives nights.\" Going up to Kesting." },
+			{ type = "pickup", who = "calder", spot = PLACES.bijou },
+			{
+				type = "ride",
+				spot = PLACES.kestingHouse,
+				meter = true,
+				lines = {
+					{ at = 0, speaker = "CALDER", text = "Greaves and Kesting. And take the long way, I'm in no rush." },
+					{ at = 0.06, speaker = "YOU", text = "Long way costs more." },
+					{ at = 0.1, speaker = "CALDER", text = "Everything does." },
+					{ at = 0.18, speaker = "CALDER", text = "You like the late shift? I do. The city tells the truth after midnight. Mostly because it's too tired to lie." },
+					{ at = 0.26, speaker = "YOU", text = "Mostly it just throws up in the back." },
+					{ at = 0.31, speaker = "CALDER", text = "Ha. That too." },
+					{ at = 0.38, speaker = "CALDER", text = "Can I tell you something? I'm police. Don't look at the mirror like that, you're doing fine.", late = true },
+					{ at = 0.44, speaker = "CALDER", text = "Two men dead in a week. One by the pier, one down a side street off Dunmore. You know what they had in common?", late = true },
+					{ at = 0.5, speaker = "CALDER", text = "Somebody saw a yellow cab. Both times.", late = true },
+					{
+						at = 0.5,
+						late = true,
+						choice = {
+							key = "calderTuesday",
+							prompt = "\"Where were you Tuesday night, around one?\"",
+							options = {
+								{ text = "\"Driving. That's all I ever do.\"", value = "driving" },
+								{ text = "\"Down by the pier. Dropped a fare at Pier Park.\"", value = "pier" },
+								{ text = "\"Home. I was sick.\"", value = "home" },
+							},
+						},
+					},
+					{ at = 0.5, late = true, when = { choice = "calderTuesday", is = "driving" }, speaker = "CALDER", text = "Sure. Driving. Everybody's always just driving." },
+					{ at = 0.5, late = true, when = { choice = "calderTuesday", is = "pier" }, speaker = "CALDER", text = "Huh. Honest. Nobody's honest with me. Who was the fare?" },
+					{ at = 0.5, late = true, when = { choice = "calderTuesday", is = "pier" }, speaker = "YOU", text = "Some guy. Didn't say much." },
+					{ at = 0.5, late = true, when = { choice = "calderTuesday", is = "pier" }, speaker = "CALDER", text = "They never do." },
+					{ at = 0.5, late = true, when = { choice = "calderTuesday", is = "home" }, speaker = "CALDER", text = "That's funny, because your dispatcher's got you logged on till four. Get some rest, you're a terrible liar." },
+					{ at = 0.62, late = true, speaker = "CALDER", text = "The side street off Dunmore. The man we found there was called Dez. You know Dez?" },
+					{
+						at = 0.62,
+						late = true,
+						choice = {
+							key = "calderDez",
+							prompt = "Calder waits.",
+							options = {
+								{ text = "\"Everybody on Kesting knows Dez.\"", value = "knew" },
+								{ text = "\"Never heard of him.\"", value = "never" },
+								{ text = "(Say nothing.)", value = "silent" },
+							},
+						},
+					},
+					{ at = 0.62, late = true, when = { choice = "calderDez", is = "knew" }, speaker = "CALDER", text = "Knew. Past tense now. Somebody made sure of that." },
+					{ at = 0.62, late = true, when = { choice = "calderDez", is = "never" }, speaker = "CALDER", text = "Funny. He'd heard of you. Your hack number was written inside a matchbook in his coat." },
+					{ at = 0.62, late = true, when = { choice = "calderDez", is = "silent" }, speaker = "CALDER", text = "...Okay. Silence is an answer too. Not a good one." },
+					{ at = 0.8, late = true, speaker = "CALDER", text = "I'm not here to arrest anybody. Not tonight. I'm here because I think somebody's going to kill you, and I'd like to get to them first." },
+					{ at = 0.88, late = true, speaker = "CALDER", text = "This is me. Pull in by the hydrant." },
+				},
+				arrival = {
+					{ speaker = "CALDER", text = "That's where it started, isn't it. Corner house. Door's still boarded." },
+					{ speaker = "CALDER", text = "Here. My card. Day or night." },
+					{ speaker = "CALDER", text = "You've got a face like a man who wants to tell someone. When you're ready, tell me." },
+				},
+			},
+			-- She leaves her card: into the phone's Contacts.
+			{
+				type = "dropoff",
+				pay = "meter",
+				tip = 0,
+				note = "Det. Calder -- Greaves Ave",
+				contact = { name = "Det. Calder", number = "555-0193", note = "Marrow Heights PD. Day or night." },
+			},
+			{ type = "text", when = TOLD, from = "Unknown number", text = "Saw a cop get out your cab on Kesting. Bad look, driver. Real bad look." },
+			{ type = "text", from = "Dispatch", text = "Next one's from the Lyric, Greaves Ave. Older fella. Asked if you were working. Didn't say why." },
+			{ type = "pickup", who = "teddy", spot = PLACES.lyric },
+			{
+				type = "ride",
+				spot = PLACES.quarryHouses,
+				meter = true,
+				lines = {
+					{ at = 0, speaker = "TEDDY", text = "Quarry Houses. Calloway." },
+					{ at = 0.05, speaker = "YOU", text = "...Sure." },
+					{ at = 0.12, speaker = "TEDDY", text = "You're the fella went down in the aisle. At Gil's." },
+					{ at = 0.18, speaker = "YOU", text = "I'm sorry about that." },
+					{ at = 0.22, speaker = "TEDDY", text = "Don't be. Half of us wanted to. You just did it first." },
+					{ at = 0.3, speaker = "TEDDY", text = "Gil and me drove trucks for the same outfit twenty years. Bread, mostly. Then the outfit folded and Gil owed money to the wrong man.", late = true },
+					{ at = 0.38, speaker = "TEDDY", text = "Vance doesn't take payments in cash. He takes them in favours. Gil was paying off a debt, that's all.", late = true },
+					{ at = 0.46, speaker = "TEDDY", text = "You know his cousin got killed too? Curtis. Cut hair on Quarry St thirty years. Shot on his own stairs.", late = true },
+					{ at = 0.52, speaker = "YOU", text = "...", late = true },
+					{ at = 0.58, speaker = "TEDDY", text = "Gil got told a yellow cab drove the shooter away. He said he'd find it. And then he got in one.", late = true },
+					{ at = 0.66, speaker = "TEDDY", text = "I'm old, son. Not stupid. I know what car I'm sitting in.", late = true },
+					{ at = 0.72, speaker = "TEDDY", text = "Don't stop. Don't pull over. I'm not going to the police and I'm not going to Vance's people.", late = true },
+					{ at = 0.8, speaker = "TEDDY", text = "Nina asked me, after, who the man was that fell down. I told her he must've loved her dad.", late = true },
+					{ at = 0.84, speaker = "TEDDY", text = "Vance's lot say you've got a loose mouth. Funny. You haven't said ten words to me.", late = true, when = TOLD },
+					{ at = 0.84, speaker = "TEDDY", text = "Vance's lot say you're Dez's driver. Dez is dead. So whose driver are you now?", late = true, when = KEPT_QUIET },
+				},
+			},
+			-- Outside the tower (see StoryScenes' farewell), then he gets out and
+			-- stands at the foot of it, looking up (the dropoff's outro).
+			{
+				type = "scene",
+				scene = "farewell",
+				lines = {
+					{ shot = "back", speaker = "TEDDY", text = "This is where Vance keeps his mother. Twelfth floor. He visits Sundays." },
+					{ shot = "back", speaker = "TEDDY", text = "I want you to drive me to him. Not now. Friday. You'll pick me up at the Lyric, nine o'clock." },
+					{ shot = "driver", speaker = "YOU", text = "What are you going to do?" },
+					{ shot = "back", speaker = "TEDDY", text = "Same thing you did. Except I'll mean it." },
+				},
+			},
+			-- He leaves the fare on the seat, folded round a funeral card.
+			{ type = "dropoff", pay = "meter", tip = 0, note = "Teddy -- folded round a funeral card", outro = "tower", linger = true },
+			{ type = "text", from = "Det. Calder", text = "Somebody's been asking around about your cab. An old man. If he contacts you, call me." },
+		},
+	},
+
+	-- 8. Twenty hours on, and no sleep in three days: two more fares, and
+	-- the night comes apart at the edges. A nurse who falls asleep in the
+	-- back -- and in the mirror, for a moment, it's Gil sat there. An old man
+	-- looking for a house that isn't there, who wants to go down by the
+	-- water -- and in the mirror, for a moment, Dez. He walks off along the
+	-- railings and isn't there any more. Then morning. No ghost ever speaks;
+	-- the game never says which of it happened.
+	{
+		id = "thelongnight",
+		part = 2,
+		title = "There Is No Band",
+		blurb = "Twenty hours on. Two more fares, then home.",
+		weather = "rain",
+		unlockText = { from = "Dispatch", text = "You've been on twenty hours. Go home." },
+		steps = {
+			{ type = "text", from = "Dispatch", text = "...Fine. One outside Ashby Houses, on Ashby. Nurse coming off nights at Mercy General. Going up to The Ashford on Calloway." },
+			{ type = "pickup", who = "june", spot = PLACES.ashbyHouses },
+			{
+				type = "ride",
+				spot = PLACES.ashford,
+				meter = true,
+				lines = {
+					{ at = 0, speaker = "JUNE", text = "The Ashford, up on Calloway, please. And if I fall asleep, poke me." },
+					{ at = 0.07, speaker = "YOU", text = "Long shift?" },
+					{ at = 0.11, speaker = "JUNE", text = "Sixteen hours. A man came in at two with a hole in him and asked for his mother. Then a girl came in at four and asked for hers." },
+					{ at = 0.2, speaker = "JUNE", text = "Everybody asks for their mother at the end. Big tough men. All of them." },
+					{ at = 0.3, speaker = "JUNE", text = "You look worse than my patients, you know that? When did you last sleep?" },
+					{ at = 0.35, speaker = "YOU", text = "I sleep." },
+					{ at = 0.38, speaker = "JUNE", text = "Liar. I can see your hands from here." },
+					{ at = 0.62, speaker = "JUNE", text = "Mm. Did I say something?", late = true },
+					{ at = 0.66, speaker = "YOU", text = "You said everybody asks for their mother.", late = true },
+					{ at = 0.7, speaker = "JUNE", text = "Yeah. They do. Who would you ask for?", late = true },
+					{ at = 0.76, speaker = "YOU", text = "...", late = true },
+					{ at = 0.84, speaker = "JUNE", text = "Call her. Whoever she is. Don't wait for the end.", late = true },
+				},
+				-- She falls asleep against the window. You blink, and it's Gil
+				-- sat there. You turn round: June, asleep.
+				vision = {
+					at = 0.45,
+					who = "june",
+					lines = {
+						{ shot = "driver", beat = 2 },
+						{ shot = "mirror", asleep = true, speaker = "JUNE", text = "...asked for his mother..." },
+						{ shot = "driver", beat = 1.4 },
+						{ shot = "mirror", blink = true, ghost = "gil", beat = 3.5 },
+						{ shot = "driver", beat = 1.2 },
+						{ shot = "back", ghost = "none", asleep = true, speaker = "JUNE", text = "...all of them..." },
+						{ shot = "back", beat = 1.5 },
+					},
+				},
+				arrival = {
+					{ speaker = "JUNE", text = "Go home. I mean it." },
+				},
+			},
+			{ type = "dropoff", pay = "meter", tip = 5, note = "June -- The Ashford" },
+			{ type = "text", from = "Dispatch", text = "Last one, then home. Old man at the Embassy cinema, Dunmore. Doesn't know where he's going. Be nice." },
+			{ type = "pickup", who = "okafor", spot = PLACES.embassy },
+			-- No route till he says where.
+			{
+				type = "ride",
+				spot = PLACES.orchard,
+				meter = true,
+				askFirst = true,
+				lines = {
+					{ at = 0, speaker = "OKAFOR", text = "Home, please." },
+					{ at = 0, speaker = "YOU", text = "Where's home, sir?" },
+					{ at = 0, speaker = "OKAFOR", text = "Orchard Lane. The house with the blue door. My wife's waiting up.", showRoute = true },
+					{ at = 0.15, speaker = "OKAFOR", text = "She worries when I'm late. Thirty-one years and she still waits up.", late = true },
+					{ at = 0.25, speaker = "OKAFOR", text = "You married, young man?", late = true },
+					{ at = 0.28, speaker = "YOU", text = "No.", late = true },
+					{ at = 0.31, speaker = "OKAFOR", text = "You've got the look of a man who's thinking about it. Or thinking about something.", late = true },
+				},
+				arrival = {
+					{ speaker = "YOU", text = "Orchard. ...There's no blue door, sir. There's nothing here but shutters." },
+					{ speaker = "OKAFOR", text = "...This isn't it. They've moved it. Try down by the water." },
+				},
+			},
+			{
+				type = "ride",
+				spot = PLACES.pier,
+				meter = true,
+				lines = {
+					{ at = 0, speaker = "YOU", text = "Pier Park. ...Anywhere but there." },
+					{ at = 0.1, speaker = "OKAFOR", text = "I used to bring her here. Saturday nights. You could see the whole city from the end of the pier." },
+					{ at = 0.3, speaker = "OKAFOR", text = "She's gone, you know. Eleven years. I keep forgetting. And then I remember, and it's like hearing it for the first time." },
+					{ at = 0.45, speaker = "YOU", text = "...I'm sorry." },
+					{ at = 0.5, speaker = "OKAFOR", text = "Don't be. Every time I forget, I get to have her back for a bit. That's not nothing." },
+					{ at = 0.8, speaker = "OKAFOR", text = "Here's fine. By the railings.", late = true },
+				},
+				-- In the mirror: Okafor, looking out of the window. Then Dez,
+				-- looking back at you. You shut your eyes.
+				vision = {
+					at = 0.6,
+					who = "okafor",
+					lines = {
+						{ shot = "mirror", beat = 2.5 },
+						{ shot = "driver", beat = 1.5 },
+						{ shot = "mirror", ghost = "dez", beat = 3.5 },
+						{ shot = "driver", beat = 1.2, action = "shutEyes" },
+						{ shot = "mirror", ghost = "none", speaker = "OKAFOR", text = "...You alright, son?" },
+					},
+				},
+			},
+			{
+				type = "scene",
+				scene = "farewell",
+				lines = {
+					{ shot = "back", speaker = "OKAFOR", text = "Thank you. You've been very kind. You'd be surprised how many people aren't." },
+					{ shot = "back", speaker = "OKAFOR", text = "Get some sleep. You look like a man who's been driving the same night for a month." },
+				},
+			},
+			-- He walks off along the railings into the rain, and then he isn't
+			-- there.
+			{ type = "dropoff", pay = "meter", tip = 0, note = "Mr. Okafor -- Pier Park", outro = "vanish" },
+			-- One more: Ray, off his last shift at the wharf. Warm, and real --
+			-- the one fare tonight that's exactly who he looks like.
+			{ type = "text", from = "Dispatch", text = "I know I said last one. Fella at the wharf gates asked for you by name. Ray. Says you'd know." },
+			{ type = "pickup", who = "ray", spot = PLACES.wharfEnd },
+			{
+				type = "ride",
+				spot = PLACES.rayHome,
+				meter = true,
+				lines = {
+					{ at = 0, speaker = "RAY", text = "Well, look who it is. I asked for the quiet one. Drove me down Greaves a few weeks back." },
+					{ at = 0.04, speaker = "YOU", text = "Ray. ...You're out late." },
+					{ at = 0.1, speaker = "RAY", text = "Last shift. Twelve years watching boxes of frozen fish down at the cold store. Tonight I handed in the keys." },
+					{ at = 0.2, speaker = "RAY", text = "Fella I worked with gave me a bottle of something. I don't drink. I'll give it to the aunt." },
+					{ at = 0.3, speaker = "RAY", text = "Friday's the play. She's an oak now, not just a tree. An oak. She was very clear about it." },
+					{ at = 0.38, speaker = "RAY", text = "Her mother's been gluing felt leaves onto her green coat all week. The kitchen looks like autumn." },
+					{ at = 0.45, speaker = "YOU", text = "Sounds like a good tree." },
+					{ at = 0.52, speaker = "RAY", text = "St. Brigid's hall, six o'clock Friday. You should come. I mean it. She'd like to meet the man who drives her dad home.", late = true },
+					{ at = 0.6, speaker = "YOU", text = "...I'll try.", late = true },
+					{ at = 0.68, speaker = "RAY", text = "You look like you haven't slept since I met you, friend.", late = true },
+					{ at = 0.78, speaker = "RAY", text = "Whatever it is -- it doesn't have to be your whole life. Take it from a man who's leaving.", late = true },
+				},
+				arrival = {
+					{ speaker = "RAY", text = "This is me. Same as last time." },
+					{ speaker = "RAY", text = "Keep the change. And come Friday. Front row's for family, but I'll save you a seat." },
+				},
+			},
+			{ type = "dropoff", pay = "meter", tip = 10, note = "Ray -- Greaves Ave" },
+			-- And back to the pier, for no reason he could give.
+			{
+				type = "drive",
+				spot = PLACES.pier,
+				lines = {
+					{ at = 0, speaker = "YOU", text = "Home's the other way." },
+					{ at = 0.4, speaker = "YOU", text = "Just to look. Just for a minute." },
+					{ at = 0.8, speaker = "YOU", text = "...", late = true },
+				},
+			},
+			{
+				type = "talk",
+				lines = {
+					{ speaker = "YOU", text = "Same railings." },
+					{ speaker = "YOU", text = "I said I was out." },
+					{ speaker = "YOU", text = "You don't get out. You just get further from where you went in." },
+				},
+			},
+			-- Morning (see StoryScenes' dawn): the rain's stopped, and it's light.
+			{
+				type = "scene",
+				scene = "dawn",
+				killEngine = true,
+				weather = "clear",
+				lines = {
+					{ shot = "outside", beat = 4.5 },
+					{ shot = "driver", beat = 3.5, action = "eyesClosing" },
+					{ shot = "black", beat = 4, action = "morning" },
+					{ shot = "morning", beat = 6 },
+					{ shot = "driver", beat = 3.5, action = "wake" },
+					{ shot = "mirror", beat = 4.5 },
+				},
+			},
+			{ type = "text", from = "Mom", text = "Are you awake? I had a dream about you. Call me." },
+			{ type = "text", from = "Det. Calder", text = "Friday. The old man you drove. He's called Teddy. Don't go anywhere with him." },
+		},
+	},
+
+	-- 9. Friday. The phone says what day it is. The cab drives itself
+	-- through the rain (see LateScenes' friday: the camera where the wing
+	-- mirror is) while he talks about not sleeping, with flashes of all of
+	-- it in between; stuck in traffic. Then Teddy, to Quarry Houses: Vance's
+	-- mother's birthday. A man goes in after him. The driver goes in after
+	-- the man. Four shots, with shaking hands -- three in the man, one in
+	-- Teddy. Down the stairs, into the cab, away. In the dark by Greaves Park
+	-- Teddy bleeds out in the back seat, and gives him Gil's tape. Then Ray
+	-- rings.
+	{
+		id = "friday",
+		part = 2,
+		title = "Friday",
+		blurb = "Nine o'clock. The Lyric. Teddy's waiting.",
+		weather = "drizzle",
+		clock = { 20, 41 },
+		unlockText = { from = "Unknown number", text = "Nine o'clock. The Lyric. -- T." },
+		steps = {
+			-- `drive`: the cab drives itself while he talks (see StoryService's
+			-- drivePath), and ends up stuck in a queue of traffic (`jam`).
+			{
+				type = "scene",
+				scene = "friday",
+				killEngine = true,
+				startEngine = true,
+				drive = { to = PLACES.lyric, length = 430, jam = true, seconds = 38 },
+				lines = {
+					{ shot = "phone", beat = 4.5 },
+					{ shot = "wing", speaker = "YOU", text = "Three days. Maybe four. You stop counting when the nights run into each other." },
+					{ shot = "wing", speaker = "YOU", text = "I close my eyes, and the piano starts." },
+					{ flash = "nina" },
+					{ shot = "wheel", speaker = "YOU", text = "Every side street, I'm looking down it. Every one." },
+					{ flash = "dez" },
+					{ shot = "wing", speaker = "YOU", text = "Six o'clock I sat outside St. Brigid's hall with the engine running. Watched the parents go in with their cameras." },
+					{ shot = "road", speaker = "YOU", text = "Couldn't go in. Didn't want to bring any of this in there with me." },
+					{ shot = "wing", speaker = "YOU", text = "The old man picked me up off the chapel floor. Asked me if I knew Gil." },
+					{ flash = "teddy" },
+					{ shot = "wheel", speaker = "YOU", text = "I said I drove him once. That's true. That's the worst of it -- it's all true." },
+					{ flash = "gil" },
+					{ shot = "jam", speaker = "YOU", text = "I keep telling myself I'm out. Then the phone goes, and I'm driving." },
+					{ shot = "wing", speaker = "YOU", text = "...Come on. Come on." },
+					{ shot = "wing", speaker = "YOU", text = "I could just not go. Turn off. Keep driving till the city runs out." },
+					{ shot = "jam", beat = 3, action = "jamMoves" },
+					{ shot = "wing", speaker = "YOU", text = "Nobody ever turns off." },
+				},
+			},
+			{ type = "pickup", who = "teddy", spot = PLACES.lyric },
+			{
+				type = "ride",
+				spot = PLACES.quarryHouses,
+				lines = {
+					{ at = 0, speaker = "TEDDY", text = "Evening." },
+					{ at = 0.04, speaker = "YOU", text = "...Evening." },
+					{ at = 0.1, speaker = "TEDDY", text = "It's his mother's birthday. Seventy-eight. He moved Sunday to tonight, for the cake." },
+					{ at = 0.2, speaker = "TEDDY", text = "Gil used to drive her to the doctor's, you know that? Tuesdays. Vance had him on it." },
+					{ at = 0.3, speaker = "TEDDY", text = "Nice lady. Makes you tea whether you want it or not.", late = true },
+					{ at = 0.38, speaker = "YOU", text = "Teddy. What are you going to do in there?", late = true },
+					{ at = 0.44, speaker = "TEDDY", text = "Talk to him first. In front of his mother. See if he can look at her while I tell her what he is.", late = true },
+					{ at = 0.52, speaker = "TEDDY", text = "After that... we'll find out what I mean.", late = true },
+					{ at = 0.6, speaker = "TEDDY", text = "You told him where Dez's house was. I know. Everybody knows. Tonight you sit outside and keep your mouth shut. Call it even.", late = true, when = TOLD },
+					{ at = 0.6, speaker = "TEDDY", text = "You kept quiet for Dez once. Keep quiet for me tonight. That's all I'm asking.", late = true, when = KEPT_QUIET },
+					{ at = 0.7, speaker = "YOU", text = "And if it goes wrong?", late = true },
+					{ at = 0.76, speaker = "TEDDY", text = "Then you were never here. You're good at that.", late = true },
+				},
+				arrival = {
+					{ speaker = "TEDDY", text = "Wait here. Keep your eyes open, son." },
+					{ speaker = "TEDDY", text = "Anybody goes in after me -- anybody -- you lean on that horn. If I'm not down in half an hour, go home." },
+				},
+			},
+			{ type = "goInside" },
+			-- Waiting. Calder rings (and rings off). Then a man in a maroon
+			-- jacket walks up the sidewalk past the cab and goes in the same
+			-- door. `prompt`: what the player's told to do about it.
+			{
+				type = "lookout",
+				who = "knifeman",
+				delay = 24,
+				objective = "Wait for Teddy. Keep your eyes open.",
+				calls = { { at = 9, from = "Det. Calder" } },
+				prompt = "Go in after him",
+			},
+			-- Inside (see LateScenes' flat): the gun out of the door; up to the
+			-- twelfth floor; Teddy at the photograph, the man behind him. The
+			-- shooting is the player's: `shoot` hands them the gun, shaking,
+			-- and whatever they do it goes three in the man, one in Teddy.
+			{
+				type = "scene",
+				scene = "flat",
+				parkAt = PLACES.quarryHouses,
+				killEngine = true,
+				cast = {
+					{ passenger = true, at = "flatPhoto" },
+					{ who = "knifeman", at = "flatKitchen" },
+				},
+				boardAfter = true,
+				startEngine = true,
+				lines = {
+					{ shot = "pocket", beat = 2.4, action = "drawGun" },
+					{ shot = "lobby", beat = 3.2 },
+					-- On black, with the camera already in the flat, while its
+					-- light comes up (cut straight in, it was dark for ten
+					-- seconds -- as the chapel was).
+					{ shot = "black", speaker = "", text = "(The lift's out. Twelve floors.)" },
+					{ shot = "black", speaker = "", text = "(A door on the twelfth floor, open a crack. Birthday balloons on the handle.)" },
+					{ shot = "black", beat = 1.5 },
+					{ shot = "doorway", beat = 3 },
+					{ shot = "photo", beat = 3.2 },
+					{ shot = "teddy", speaker = "TEDDY", text = "Look at him. Look at that smile. You'd never know." },
+					{ shot = "kitchen", beat = 2.4, action = "manComes" },
+					{ shot = "doorway", speaker = "MAN", text = "Vance said the driver would bring you. The one with the loose mouth.", when = TOLD },
+					{ shot = "doorway", speaker = "MAN", text = "Vance said Dez's driver would bring you. Loyal to the end, that one.", when = KEPT_QUIET },
+					{ shot = "aim", action = "shoot" },
+					{ shot = "after", beat = 3 },
+					{ shot = "after", speaker = "", text = "(Footsteps. Running. On the stairs above.)" },
+					{ shot = "teddy", speaker = "TEDDY", text = "Go. GO." },
+					{ shot = "stairs", beat = 4.5 },
+					{ shot = "street", beat = 4.5 },
+				},
+			},
+			{
+				type = "ride",
+				spot = PLACES.greavesPark,
+				timeLimit = 85,
+				lines = {
+					{ at = 0.04, speaker = "TEDDY", text = "Drive. Just drive." },
+					{ at = 0.14, speaker = "YOU", text = "You're hit." },
+					{ at = 0.2, speaker = "TEDDY", text = "It's my shoulder. It's nothing. Drive." },
+					{ at = 0.34, speaker = "YOU", text = "Teddy, I'm sorry, I didn't--" },
+					{ at = 0.42, speaker = "TEDDY", text = "I know you didn't. Drive." },
+					{ at = 0.6, speaker = "TEDDY", text = "...Somewhere quiet. The park. Pull in at the park." },
+					{ at = 0.72, speaker = "YOU", text = "Mercy General's ten minutes--", late = true },
+					{ at = 0.8, speaker = "TEDDY", text = "No hospitals. They'll have people at every one by now. The park.", late = true },
+				},
+				failText = "They caught up with you. Try again -- get Teddy away.",
+			},
+			-- By the park (see LateScenes' teddyDies): it won't stop bleeding.
+			-- He gives the driver Gil's tape (`gives`: remembered as hasTape).
+			-- Then the long pull back from the cab to the whole city.
+			{
+				type = "scene",
+				scene = "teddyDies",
+				killEngine = true,
+				gives = "Tape",
+				lines = {
+					{ shot = "outside", beat = 3.5 },
+					{ shot = "back", speaker = "YOU", text = "Let me see. Let me see it." },
+					{ shot = "wound", beat = 2.6, action = "blood" },
+					{ shot = "back", speaker = "TEDDY", text = "It's fine. It's nothing." },
+					{ shot = "press", speaker = "YOU", text = "Press on it. Here -- I'll press on it.", action = "press" },
+					{ shot = "driver", beat = 2 },
+					{ shot = "press", speaker = "YOU", text = "It won't stop. Why won't it stop?" },
+					{ shot = "back", speaker = "TEDDY", text = "...Because it's not my shoulder, son. It's the big one, under it. I drove an ambulance in the army. I know what this is." },
+					{ shot = "driver", speaker = "YOU", text = "No. No -- Mercy's ten minutes, I can--" },
+					{ shot = "back", speaker = "TEDDY", text = "I haven't got ten minutes. Listen to me. Inside my coat." },
+					{ shot = "tape", beat = 3, action = "tape" },
+					{ shot = "back", speaker = "TEDDY", text = "Gil kept it under the seat of his truck. Vance, talking about Curtis. Talking about all of it. Gil taped him." },
+					{ shot = "back", speaker = "TEDDY", text = "He was going to take it to somebody. Then he got in your cab." },
+					{ shot = "tape", speaker = "TEDDY", text = "Don't give it to Vance. Whatever he offers you. Don't you give it to him." },
+					{ shot = "driver", beat = 2.2 },
+					{ shot = "back", speaker = "TEDDY", text = "You told him one house once. Don't you ever tell him anything again.", when = TOLD },
+					{ shot = "back", speaker = "TEDDY", text = "You kept quiet for Dez. Don't keep quiet about this.", when = KEPT_QUIET },
+					{ shot = "back", speaker = "TEDDY", text = "Tell Nina... No. Don't tell Nina anything." },
+					{ shot = "back", beat = 3.5, action = "dies" },
+					{ shot = "pullout", beat = 17 },
+				},
+			},
+			-- And then the phone. Ray: the bus has moved to the morning.
+			{
+				type = "scene",
+				scene = "phoneCall",
+				caller = "Ray",
+				lines = {
+					{ shot = "ringing", beat = 3.5 },
+					{ shot = "call", speaker = "RAY", text = "...Hello? It's Ray. Sorry -- it's late, I know it's late." },
+					{ shot = "call", speaker = "RAY", text = "The bus got moved. Some trouble at the depot. It's tomorrow now -- seven in the morning." },
+					{ shot = "call", speaker = "RAY", text = "Come by the house first? Half six. Marie'll take the little one down early. I'll have coffee on." },
+					{ shot = "call", speaker = "RAY", text = "I want to say goodbye properly. Not out of the back of a cab." },
+					{ shot = "call", speaker = "YOU", text = "...Yeah. I'll be there." },
+					{ shot = "call", speaker = "RAY", text = "You alright? You sound--" },
+					{ shot = "call", speaker = "YOU", text = "I'm fine, Ray. Half six." },
+					{ shot = "hangup", beat = 4 },
+				},
+			},
+		},
+	},
+
+	-- 10. Saturday morning, the second daylight in the game. Ray on his
+	-- front step with two coffees: he finally says his son's name. "I'll do
+	-- the driving for once." His wife and daughter are on the bus already;
+	-- the girl's at the window. A man walks up the road -- slow motion --
+	-- and fires into the cab. Ray's killed in the driver's seat. The driver
+	-- falls out of the other door, and shoots back. Nobody says who sent him.
+	-- He walks a little way; looks at his hand; sees the red on it, and on
+	-- his shoulder; goes down. Black. To be continued.
+	{
+		id = "christmastree",
+		part = 2,
+		title = "Christmas Tree",
+		blurb = "Saturday morning. Ray's leaving the city, and he wants to say goodbye properly.",
+		weather = "clear",
+		morning = true,
+		clock = { 6, 18 },
+		unlockText = { from = "Ray", text = "Morning. Coffee's on. Marie took Rosie down to the depot already -- she couldn't sleep. Just you and me." },
+		steps = {
+			{
+				type = "drive",
+				spot = PLACES.rayHome,
+				lines = {
+					{ at = 0, speaker = "YOU", text = "Left him on the steps of St. Brigid's. Under the light, so somebody'd find him." },
+					{ at = 0.15, speaker = "YOU", text = "Called it in from the payphone on Vail. Didn't give a name." },
+					{ at = 0.3, speaker = "YOU", text = "Washed my hands in a gas station sink. Twice." },
+					{ at = 0.45, speaker = "YOU", text = "The tape's in my coat. It weighs more than the gun." },
+					{ at = 0.65, speaker = "YOU", text = "Some of it won't come off.", late = true },
+					{ at = 0.85, speaker = "YOU", text = "Half six. Act normal. It's Ray.", late = true },
+				},
+			},
+			-- His front step (see LateScenes' frontStep): coffee, the play,
+			-- the cloth for his hands, Danny. Ray takes the keys.
+			{
+				type = "scene",
+				scene = "frontStep",
+				killEngine = true,
+				-- (Put square at the kerb first: pulled up any old way, the cab
+				-- was left floating -- reported.)
+				parkAt = PLACES.rayHome,
+				settle = true,
+				cast = { { who = "ray", at = "rayStep" } },
+				lines = {
+					{ shot = "arrive", beat = 3.5 },
+					{ shot = "step", speaker = "RAY", text = "There he is. Sit down, sit down. Careful, the step's cold." },
+					{ shot = "ray", speaker = "RAY", text = "Milk, no sugar. I guessed. You look like a milk-no-sugar man." },
+					{ shot = "you", speaker = "YOU", text = "...Thanks." },
+					{ shot = "ray", speaker = "RAY", text = "I saw your cab outside St. Brigid's last night. Six o'clock. You never came in." },
+					{ shot = "you", speaker = "YOU", text = "I didn't want to bring anything in there with me." },
+					{ shot = "step", beat = 2.5 },
+					{ shot = "ray", speaker = "RAY", text = "She was a great tree. An oak. She stood so still the teacher checked she was breathing." },
+					{ shot = "ray", speaker = "RAY", text = "One line. 'The wind is coming.' Practised it on me every morning for a month. 'The wind is coming, Daddy.'" },
+					{ shot = "cloth", speaker = "RAY", text = "Here. You've got something on your hands.", action = "cloth" },
+					{ shot = "hands", beat = 3.5, action = "wipe" },
+					{ shot = "ray", speaker = "RAY", text = "I'm not asking. I had a boy once. I know what it looks like when somebody's carrying something too heavy to put down." },
+					{ shot = "ray", speaker = "RAY", text = "His name was Danny. I don't say it much. People get that look." },
+					{ shot = "step", speaker = "RAY", text = "He used to sit right where you're sitting. Six in the morning, eating cereal out of the box, going on about some girl." },
+					{ shot = "ray", speaker = "RAY", text = "Nineteen. Wanted to drive a bus, you believe that? Said you'd get to see the whole city and never have to stay in any of it." },
+					{ shot = "you", speaker = "YOU", text = "...I'm sorry, Ray." },
+					{ shot = "ray", speaker = "RAY", text = "Yeah. You said that last time too. I believed you then, too." },
+					{ shot = "step", beat = 2 },
+					{ shot = "ray", speaker = "RAY", text = "Come on. Bus is at seven." },
+					{ shot = "keys", speaker = "RAY", text = "Give me the keys. I'll do the driving for once.", action = "keys" },
+					{ shot = "you", speaker = "YOU", text = "Ray--" },
+					{ shot = "ray", speaker = "RAY", text = "Twelve years in the back of cabs. Let a man drive himself to his own new life." },
+				},
+			},
+			-- Ray at the wheel, the driver beside him (see LateScenes'
+			-- rayDrives), all the way to the depot. His wife and daughter are
+			-- on the bus already (`cast`).
+			{
+				type = "scene",
+				scene = "rayDrives",
+				killEngine = true,
+				drive = { to = PLACES.depot, seconds = 52 },
+				cast = {
+					{ who = "raywife", at = "busMum", seated = true },
+					{ who = "raygirl", at = "busGirl", seated = true, scale = 0.72 },
+				},
+				lines = {
+					{ shot = "rayWheel", speaker = "RAY", text = "Ha! Look at this. It pulls to the left. You know it pulls to the left?" },
+					{ shot = "you", speaker = "YOU", text = "I know." },
+					{ shot = "street", beat = 3 },
+					{ shot = "rayWheel", speaker = "RAY", text = "The aunt's got a porch. Rosie wants a dog. I said one thing at a time. She said the dog IS one thing." },
+					{ shot = "twoShot", speaker = "RAY", text = "Marie says I'll be bored in a week, upstate. I told her bored's the dream. Bored's the whole idea." },
+					{ shot = "street", beat = 3 },
+					{ shot = "rayWheel", speaker = "RAY", text = "You should come up. Christmas. There's a tree farm down the road. She wants to pick one herself." },
+					{ shot = "twoShot", speaker = "RAY", text = "A real tree this time. Not her in a coat with felt leaves on." },
+					{ shot = "you", speaker = "YOU", text = "...Maybe I will." },
+					{ shot = "rayWheel", speaker = "RAY", text = "No maybe. I'm writing it on the calendar. In pen." },
+					{ shot = "street", beat = 3 },
+					{ shot = "rayWheel", speaker = "RAY", text = "There it is. And there's my girls -- look, she's at the window." },
+				},
+			},
+			-- The depot (see LateScenes' depot). `slump`: Ray left at the wheel
+			-- afterwards, for anyone to see.
+			{
+				type = "scene",
+				scene = "depot",
+				cast = { { who = "gunman", at = "depotGunman" } },
+				slump = "ray",
+				lines = {
+					{ shot = "window", beat = 3.2 },
+					{ shot = "ray", speaker = "RAY", text = "Look at her. Look at that face." },
+					{ shot = "ray", speaker = "RAY", text = "Go on, wave. She'll want to wave to you." },
+					-- Slowed right down from here: him round the corner, at a run.
+					{ shot = "corner", beat = 3.4, action = "runs" },
+					{ shot = "slowRay", beat = 2.4 },
+					{ shot = "slowGun", beat = 2.6, action = "gunUp" },
+					{ shot = "slowYou", speaker = "YOU", text = "Ray--" },
+					{ shot = "fire", beat = 2.8, action = "fire" },
+					-- Normal speed: down, out, round the back of the cab.
+					{ shot = "duck", beat = 1.6 },
+					{ shot = "fall", beat = 1.8, action = "fallOut" },
+					{ shot = "crouch", beat = 2.8, action = "crouch" },
+					{ shot = "peek", beat = 2.4, action = "comes" },
+					-- Real aim, three hits, eight seconds -- or he gets there first
+					-- (see LateScenes' depot).
+					{ shot = "aim", action = "shoot" },
+					{ shot = "silence", beat = 4.5 },
+				},
+			},
+			-- On his feet, the player's own: a few steps. Then (see LateScenes'
+			-- collapse) his hand, and his shoulder.
+			{ type = "walk", seconds = 14, objective = "..." },
+			{
+				type = "scene",
+				scene = "collapse",
+				lines = {
+					{ shot = "hand", beat = 2.6, action = "lookHand" },
+					{ shot = "hand", speaker = "YOU", text = "...That's not Teddy's." },
+					{ shot = "shoulder", beat = 2.6 },
+					{ shot = "fall", beat = 2.2, action = "collapse" },
+					{ shot = "black", beat = 3.5 },
+				},
+			},
+			{ type = "ending", title = "TO BE CONTINUED", subtitle = "There was room in the car." },
 		},
 	},
 }

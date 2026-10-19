@@ -72,6 +72,8 @@ function Passengers.spawn(name: string, look: Look, standing: Vector3, facing: V
 	description.RightLegColor = look.pants
 	local npc = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
 	npc.Name = "Passenger_" .. name
+	-- Arrives on a player's screen in one piece, not a limb at a time.
+	npc.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.WalkSpeed = 8
@@ -87,6 +89,17 @@ function Passengers.spawn(name: string, look: Look, standing: Vector3, facing: V
 	root.Anchored = true
 	npc.Parent = workspace
 	return npc
+end
+
+-- Stands `npc` (pinned in place) on the ground at `spot`'s position,
+-- facing the way `spot` does -- for putting people where a scene needs them.
+function Passengers.place(npc: Model, spot: CFrame)
+	local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+	root.Anchored = true
+	npc:PivotTo(spot + Vector3.new(0, standingHeight(npc), 0))
 end
 
 -- How the passenger's root sits relative to the back seat. (Measured live
@@ -123,7 +136,9 @@ local riding: { [Model]: { weld: WeldConstraint, pose: AnimationTrack? } } = {}
 -- Instead they're held in place: their body's own physics switched off
 -- (PlatformStand), welded straight to the seat, weightless and not
 -- touching anything, in the sitting pose.
-function Passengers.board(npc: Model, car: Model)
+-- `instant`: straight into the seat from wherever they are, no walk (they
+-- got in during a cutscene).
+function Passengers.board(npc: Model, car: Model, instant: boolean?)
 	local chassis = car.PrimaryPart
 	local seat = car:FindFirstChild("PassengerSeat") :: BasePart?
 	if not npc.Parent or not chassis or not seat then
@@ -131,15 +146,17 @@ function Passengers.board(npc: Model, car: Model)
 	end
 	local root = npc:FindFirstChild("HumanoidRootPart") :: BasePart
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
-	root.Anchored = false
-	root:SetNetworkOwner(nil)
-	humanoid:ChangeState(Enum.HumanoidStateType.Running)
-	-- To the rear door on whichever side of the cab they're on.
-	local side = if (chassis.CFrame:PointToObjectSpace(root.Position)).X >= 0 then 1 else -1
-	local door = (chassis.CFrame * CFrame.new(side * (chassis.Size.X / 2 + 1.5), 0, 3)).Position
-	Passengers.walkTo(npc, door, 3)
-	if not npc.Parent or not seat.Parent then
-		return
+	if not instant then
+		root.Anchored = false
+		root:SetNetworkOwner(nil)
+		humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		-- To the rear door on whichever side of the cab they're on.
+		local side = if (chassis.CFrame:PointToObjectSpace(root.Position)).X >= 0 then 1 else -1
+		local door = (chassis.CFrame * CFrame.new(side * (chassis.Size.X / 2 + 1.5), 0, 3)).Position
+		Passengers.walkTo(npc, door, 3)
+		if not npc.Parent or not seat.Parent then
+			return
+		end
 	end
 
 	-- In.

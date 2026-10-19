@@ -662,6 +662,125 @@ local function buildChapel(parent: Instance, lot)
 	Facade.boardText(board, roadFace, lot.name .. "  ·  FUNERAL CHAPEL", Color3.fromRGB(225, 210, 175), Color3.fromRGB(40, 38, 36), Enum.Font.Garamond)
 end
 
+-- ===== The bus depot (chapter 10) =====
+-- Down by the wharf, the edge of the city: a paved forecourt off the
+-- sidewalk with the upstate bus waiting in it side-on to the street, a
+-- shelter and bench at the kerb, and the ticket hall across the back with
+-- the depot's name over it. The bus is hollow, with seats, and its road-side
+-- windows are clear, so whoever's sat in it can be seen from the street
+-- (see CityConfig.DEPOT_BUS for where it is).
+
+local function buildBusDepot(parent: Instance, lot)
+	local s = lot.side
+	local roadFace = Facade.roadFace(s)
+	local near, far = CityConfig.lotZRange(lot)
+	local zCenter = (near + far) / 2
+	local length = near - far
+	local depth = 22
+	-- World-space pieces (the bus) go through this: part() works in the
+	-- street's frame.
+	local function worldPart(name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?): Part
+		return part(parent, name, size, FRAME:Inverse() * cframe, color, material)
+	end
+
+	-- The forecourt, level with the sidewalk.
+	part(parent, "DepotForecourt", Vector3.new(depth, SIDEWALK_TOP, length), CFrame.new(at(s, -depth / 2, SIDEWALK_TOP / 2, zCenter)), Color3.fromRGB(74, 72, 70), Enum.Material.Concrete)
+	for k = -2, 2 do
+		detail(part(parent, "BayLine", Vector3.new(depth - 6, 0.05, 0.3), CFrame.new(at(s, -depth / 2 + 1, SIDEWALK_TOP + 0.03, zCenter + k * 7)), Color3.fromRGB(225, 200, 70)))
+	end
+
+	-- The ticket hall across the back.
+	local hallDepth, hallHeight = 9, 15
+	local hall = part(parent, "DepotHall", Vector3.new(hallDepth, hallHeight, length - 2), CFrame.new(at(s, -depth + hallDepth / 2, SIDEWALK_TOP + hallHeight / 2, zCenter)), Color3.fromRGB(150, 140, 120), Enum.Material.Brick)
+	local gui = Facade.gui(hall, roadFace)
+	Facade.windows(gui, 8, 3, 0.75, 0.15, 0.55)
+	local board = detail(part(parent, "DepotSign", Vector3.new(0.4, 2.6, length * 0.6), CFrame.new(at(s, -depth + hallDepth + 0.3, SIDEWALK_TOP + hallHeight - 2.4, zCenter)), Color3.fromRGB(26, 50, 90)))
+	Facade.boardText(board, roadFace, lot.name .. "  ·  INTERCITY & UPSTATE", Color3.fromRGB(240, 230, 200), Color3.fromRGB(26, 50, 90), Enum.Font.GothamBold)
+	for _, dz in { -4, 4 } do
+		local doorway = detail(part(parent, "HallDoors", Vector3.new(0.2, 6, 4), CFrame.new(at(s, -depth + hallDepth + 0.12, SIDEWALK_TOP + 3, zCenter + dz)), Color3.fromRGB(255, 226, 170), Enum.Material.Neon))
+		doorway.Transparency = 0.3
+	end
+
+	-- A low wall closing the forecourt off at either end.
+	for _, z in { near - 0.5, far + 0.5 } do
+		part(parent, "DepotEndWall", Vector3.new(depth - hallDepth, 3, 1), CFrame.new(at(s, -(depth - hallDepth) / 2, SIDEWALK_TOP + 1.5, z)), Color3.fromRGB(120, 112, 100), Enum.Material.Brick)
+	end
+
+	-- The shelter at the kerb: a roof on posts, a bench, the timetable.
+	local shelterZ = zCenter + length * 0.3
+	local kerbOut = CityConfig.SIDEWALK_WIDTH + 3 - 2.5
+	for _, dz in { -3, 3 } do
+		detail(part(parent, "ShelterPost", Vector3.new(0.25, 7, 0.25), CFrame.new(at(s, kerbOut - 1, SIDEWALK_TOP + 3.5, shelterZ + dz)), Color3.fromRGB(40, 60, 80), Enum.Material.Metal))
+	end
+	detail(part(parent, "ShelterRoof", Vector3.new(3.4, 0.3, 7.4), CFrame.new(at(s, kerbOut, SIDEWALK_TOP + 7.1, shelterZ)), Color3.fromRGB(40, 60, 80), Enum.Material.Metal))
+	local back = detail(part(parent, "ShelterBack", Vector3.new(0.15, 4.5, 6.4), CFrame.new(at(s, kerbOut - 1.6, SIDEWALK_TOP + 3, shelterZ)), Color3.fromRGB(180, 200, 210), Enum.Material.Glass))
+	back.Transparency = 0.5
+	detail(part(parent, "ShelterBench", Vector3.new(1.2, 0.3, 5), CFrame.new(at(s, kerbOut - 0.9, SIDEWALK_TOP + 1.6, shelterZ)), Color3.fromRGB(96, 66, 42), Enum.Material.Wood))
+	local timetable = detail(part(parent, "Timetable", Vector3.new(0.2, 1.6, 1.2), CFrame.new(at(s, kerbOut - 1.7, SIDEWALK_TOP + 4.6, shelterZ + 2.2)), Color3.fromRGB(240, 236, 226)))
+	Facade.boardText(timetable, roadFace, "UPSTATE 7:00", Color3.fromRGB(26, 26, 30), Color3.fromRGB(240, 236, 226))
+
+	-- The bus.
+	local bus = CityConfig.DEPOT_BUS
+	local size = CityConfig.DEPOT_BUS_SIZE
+	local floorY = bus.Position.Y
+	local groundY = SIDEWALK_TOP
+	local cream = Color3.fromRGB(226, 218, 196)
+	local blue = Color3.fromRGB(40, 70, 130)
+	local function busPart(name: string, partSize: Vector3, offset: Vector3, color: Color3, material: Enum.Material?): Part
+		return worldPart(name, partSize, bus * CFrame.new(offset), color, material)
+	end
+	local lowerTop = 2.2 -- the body below the windows, above the floor
+	local windowTop = lowerTop + 3.1
+	local roofTop = windowTop + 0.9
+	-- Lower body, down to just above the road.
+	busPart("BusSkirt", Vector3.new(size.X, floorY - groundY - 0.4, size.Z), Vector3.new(0, -(floorY - groundY) / 2 + 0.2, 0), blue, Enum.Material.SmoothPlastic)
+	for _, x in { -size.X / 2 + 0.15, size.X / 2 - 0.15 } do
+		busPart("BusSide", Vector3.new(0.3, lowerTop, size.Z), Vector3.new(x, lowerTop / 2, 0), cream, Enum.Material.SmoothPlastic)
+		busPart("BusStripe", Vector3.new(0.35, 0.4, size.Z), Vector3.new(x, lowerTop - 0.3, 0), blue, Enum.Material.SmoothPlastic)
+		-- Window pillars, and clear glass between them.
+		for k = 0, 6 do
+			local z = -size.Z / 2 + 1 + k * ((size.Z - 2) / 6)
+			busPart("BusPillar", Vector3.new(0.3, windowTop - lowerTop, 0.5), Vector3.new(x, (lowerTop + windowTop) / 2, z), cream, Enum.Material.SmoothPlastic)
+		end
+		-- (Plain and nearly clear: as Glass it washed out whoever was sat
+		-- behind it.)
+		local glass = busPart("BusWindows", Vector3.new(0.1, windowTop - lowerTop, size.Z - 1), Vector3.new(x, (lowerTop + windowTop) / 2, 0), Color3.fromRGB(150, 170, 180), Enum.Material.SmoothPlastic)
+		glass.Transparency = 0.88
+		glass.CanCollide = false
+	end
+	busPart("BusFloor", Vector3.new(size.X, 0.3, size.Z), Vector3.new(0, -0.15, 0), Color3.fromRGB(60, 60, 64), Enum.Material.SmoothPlastic)
+	busPart("BusRoof", Vector3.new(size.X, roofTop - windowTop, size.Z), Vector3.new(0, (windowTop + roofTop) / 2, 0), cream, Enum.Material.SmoothPlastic)
+	-- The ends: the windshield at the front (-Z), the engine at the back.
+	busPart("BusFront", Vector3.new(size.X, lowerTop, 0.4), Vector3.new(0, lowerTop / 2, -size.Z / 2 + 0.2), cream, Enum.Material.SmoothPlastic)
+	local windshield = busPart("BusWindshield", Vector3.new(size.X - 0.6, windowTop - lowerTop, 0.2), Vector3.new(0, (lowerTop + windowTop) / 2, -size.Z / 2 + 0.1), Color3.fromRGB(40, 50, 60), Enum.Material.Glass)
+	windshield.Transparency = 0.4
+	busPart("BusBack", Vector3.new(size.X, roofTop, 0.4), Vector3.new(0, roofTop / 2, size.Z / 2 - 0.2), cream, Enum.Material.SmoothPlastic)
+	local destination = busPart("BusDestination", Vector3.new(size.X - 2, 0.7, 0.15), Vector3.new(0, windowTop + 0.45, -size.Z / 2 - 0.05), Color3.fromRGB(255, 170, 40), Enum.Material.Neon)
+	Facade.boardText(destination, Enum.NormalId.Front, "UPSTATE EXPRESS", Color3.fromRGB(30, 20, 10), Color3.fromRGB(255, 170, 40), Enum.Font.GothamBold)
+	-- Wheels.
+	for _, z in { -size.Z / 2 + 5, size.Z / 2 - 6 } do
+		for _, x in { -size.X / 2 + 0.3, size.X / 2 - 0.3 } do
+			local wheel = worldPart("BusWheel", Vector3.new(1.2, 3.2, 3.2), bus * CFrame.new(x, groundY + 1.6 - floorY, z), Color3.fromRGB(20, 20, 22), Enum.Material.Rubber)
+			wheel.Shape = Enum.PartType.Cylinder
+		end
+	end
+	-- Seats down both sides inside, and a light along the ceiling.
+	for k = 0, 6 do
+		local z = -size.Z / 2 + 3.5 + k * 3.8
+		for _, x in { -2.6, 2.6 } do
+			busPart("BusSeat", Vector3.new(2.6, 0.5, 1.6), Vector3.new(x, 1.3, z), Color3.fromRGB(60, 50, 110), Enum.Material.Fabric)
+			busPart("BusSeatBack", Vector3.new(2.6, 2.2, 0.35), Vector3.new(x, 2.3, z + 0.85), Color3.fromRGB(60, 50, 110), Enum.Material.Fabric)
+		end
+	end
+	local strip = busPart("BusLight", Vector3.new(0.6, 0.15, size.Z - 4), Vector3.new(0, windowTop + 0.35, 0), Color3.fromRGB(240, 240, 220), Enum.Material.Neon)
+	strip.CanCollide = false
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(240, 236, 210)
+	light.Brightness = 1.2
+	light.Range = 18
+	light.Parent = strip
+end
+
 -- ===== Nightclubs =====
 
 local CLUB_PALETTES = {
@@ -1125,6 +1244,7 @@ local LOT_DEPTH = {
 	cinema = 24,
 	highrise = 26,
 	park = 100,
+	busDepot = 22,
 }
 
 local function buildLots(parent: Instance)
@@ -1154,6 +1274,8 @@ local function buildLots(parent: Instance)
 			buildHighrise(model, lot)
 		elseif lot.kind == "park" then
 			buildPark(model, lot)
+		elseif lot.kind == "busDepot" then
+			buildBusDepot(model, lot)
 		end
 
 		local near, far = CityConfig.lotZRange(lot)

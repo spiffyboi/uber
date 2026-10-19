@@ -242,7 +242,7 @@ local toldVance = false
 local toggle = button(test, "", 2, SUBTLE, 34)
 toggle.TextSize = 18
 local function refreshToggle()
-	toggle.Text = `   Told Vance about the house (chapters 3-6): {if toldVance then "YES" else "NO"}`
+	toggle.Text = `   Told Vance about the house (chapters 3-8): {if toldVance then "YES" else "NO"}`
 end
 refreshToggle()
 toggle.Activated:Connect(function()

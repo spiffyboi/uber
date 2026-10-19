@@ -473,18 +473,37 @@ end)
 -- The time on the phone: 1:30 AM when the shift starts, then running at the
 -- real clock's pace.
 local shiftStart = os.clock()
+local startMinutes = 90
+local function showTime()
+	local minutes = startMinutes + math.floor((os.clock() - shiftStart) / 60)
+	local hour = math.floor(minutes / 60) % 24
+	local minute = minutes % 60
+	local shown = hour % 12
+	if shown == 0 then
+		shown = 12
+	end
+	local suffix = if hour < 12 then "AM" else "PM"
+	clockLabel.Text = string.format("%d:%02d %s", shown, minute, suffix)
+	bigClock.Text = string.format("%d:%02d", shown, minute)
+end
+
+-- The story moving the clock on (chapter 9 is a Friday evening, chapter 10
+-- a Saturday morning): from `hour`:`minute` (24-hour), running on from
+-- there.
+function Phone.setClock(hour: number, minute: number)
+	startMinutes = hour * 60 + minute
+	shiftStart = os.clock()
+	showTime()
+end
+
+-- What it says now, e.g. "8:41 PM" (for the lock screen in a cutscene).
+function Phone.timeText(): string
+	return clockLabel.Text
+end
+
 task.spawn(function()
 	while true do
-		local minutes = 90 + math.floor((os.clock() - shiftStart) / 60)
-		local hour = math.floor(minutes / 60) % 24
-		local minute = minutes % 60
-		local shown = hour % 12
-		if shown == 0 then
-			shown = 12
-		end
-		local suffix = if hour < 12 then "AM" else "PM"
-		clockLabel.Text = string.format("%d:%02d %s", shown, minute, suffix)
-		bigClock.Text = string.format("%d:%02d", shown, minute)
+		showTime()
 		task.wait(5)
 	end
 end)

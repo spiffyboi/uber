@@ -16,6 +16,7 @@ local OpeningSetBuilder = require(script.Parent.OpeningSetBuilder)
 local TaxiOfficeBuilder = require(script.Parent.TaxiOfficeBuilder)
 local GunStoreBuilder = require(script.Parent.GunStoreBuilder)
 local ChapelBuilder = require(script.Parent.ChapelBuilder)
+local FlatBuilder = require(script.Parent.FlatBuilder)
 local PedestrianSpawner = require(script.Parent.PedestrianSpawner)
 local TrafficSpawner = require(script.Parent.TrafficSpawner)
 
@@ -31,6 +32,11 @@ GunStoreBuilder.build()
 local chapelOk, chapelError = pcall(ChapelBuilder.build)
 if not chapelOk then
 	warn("GameStartup: the chapel interior didn't build: " .. tostring(chapelError))
+end
+-- The same for the flat in Quarry Houses (chapter 9).
+local flatOk, flatError = pcall(FlatBuilder.build)
+if not flatOk then
+	warn("GameStartup: the flat interior didn't build: " .. tostring(flatError))
 end
 PedestrianSpawner.build()
 TrafficSpawner.build()

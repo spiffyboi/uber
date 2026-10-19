@@ -73,6 +73,17 @@ end
 
 -- The driver's body parts, for the cutscene to show or hide.
 local driverParts: { BasePart } = {}
+
+-- Getting out, while sat in the cab (see start()).
+local leaveCar: ((CFrame?) -> ())? = nil
+
+-- A cutscene putting the driver out of the cab, onto the ground at `at`
+-- (chapter 10: out of the passenger door). Doesn't yield.
+function CarSystems.getOut(at: CFrame)
+	if leaveCar then
+		task.spawn(leaveCar, at)
+	end
+end
 function CarSystems.setDriverVisible(visible: boolean)
 	for _, part in driverParts do
 		part.LocalTransparencyModifier = if visible then 0 else 1
@@ -691,6 +702,7 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 	-- at high priority, always Sinking -- so the engine's own default "jump
 	-- ejects you from any seat" behaviour can never fire out from under
 	-- this sequence, moving or not.
+	local leave: (CFrame?) -> ()
 	local function handleExit(_actionName: string, inputState: Enum.UserInputState)
 		if inputState ~= Enum.UserInputState.Begin then
 			return Enum.ContextActionResult.Sink
@@ -699,13 +711,23 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 			return Enum.ContextActionResult.Sink
 		end
 
+		task.spawn(leave)
+		return Enum.ContextActionResult.Sink
+	end
+
+	-- Out of the cab: by the driver's door, or (`at`, from a cutscene -- see
+	-- CarSystems.getOut) wherever the scene puts them, with no turn and no
+	-- fade of its own.
+	function leave(at: CFrame?)
+		if exiting then
+			return
+		end
 		exiting = true
 		if not seat.Disabled then
 			stopEngineRemote:FireServer()
 		end
-
-		task.spawn(function()
-			if view == "driver" then
+		do
+			if view == "driver" and not at then
 				-- Turn toward the door first.
 				local waited = 0
 				while math.abs(lookYaw - EXIT_LOOK_YAW) > math.rad(4) and waited < 1.5 do
@@ -715,8 +737,10 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 			end
 
 			local fadeGui, fade = buildFadeGui()
-			TweenService:Create(fade, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
-			task.wait(0.4)
+			if not at then
+				TweenService:Create(fade, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
+				task.wait(0.4)
+			end
 
 			renderConnection:Disconnect()
 			for _, connection in connections do
@@ -740,13 +764,30 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 			-- anything.
 			if humanoid then
 				humanoid.Sit = false
+				-- And wait till the seat's really let go: moved while still
+				-- welded in, the body dragged the whole cab along with it
+				-- (seen in chapter 10: the cab ended up where the driver was
+				-- put, behind it).
+				local started = os.clock()
+				while humanoid.SeatPart and os.clock() - started < 1.5 do
+					task.wait()
+				end
+				local weld = seat:FindFirstChild("SeatWeld")
+				if weld then
+					weld:Destroy()
+				end
 			end
-			local dropOff = chassis.CFrame * CFrame.new(-(chassis.Size.X / 2 + 3), -(chassis.Size.Y / 2) + 3, 0.5)
+			local dropOff = at or chassis.CFrame * CFrame.new(-(chassis.Size.X / 2 + 3), -(chassis.Size.Y / 2) + 3, 0.5)
 			character:PivotTo(dropOff)
+			-- (Not the cutscenes' to show or hide any more.)
+			driverParts = {}
+			leaveCar = nil
 
-			camera.CameraType = Enum.CameraType.Custom
-			if humanoid then
-				camera.CameraSubject = humanoid
+			if not cutscene then
+				camera.CameraType = Enum.CameraType.Custom
+				if humanoid then
+					camera.CameraSubject = humanoid
+				end
 			end
 
 			task.wait(0.1)
@@ -756,10 +797,9 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 
 			ContextActionService:UnbindAction("CarSystemsExit")
 			active = false
-		end)
-
-		return Enum.ContextActionResult.Sink
+		end
 	end
+	leaveCar = leave
 	ContextActionService:BindActionAtPriority("CarSystemsExit", handleExit, false, ACTION_PRIORITY, Enum.KeyCode.Space)
 end
 
