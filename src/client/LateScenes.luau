@@ -48,6 +48,7 @@ local StoryScenes = require(script.Parent.StoryScenes)
 local SelfDrive = require(script.Parent.SelfDrive)
 local Flashbacks = require(script.Parent.Flashbacks)
 local Shooting = require(script.Parent.Shooting)
+local Faces = require(script.Parent.Faces)
 
 local kit = StoryScenes.kit
 local player = Players.LocalPlayer
@@ -187,6 +188,9 @@ local function copyOfPlayer(): Model?
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	end
 	double.Parent = workspace
+	-- Not frozen in whatever their avatar's face was doing when copied (a
+	-- smirk, mostly): a scene sets the face it wants (see Faces).
+	Faces.set(double, "neutral")
 	return double
 end
 
@@ -689,6 +693,7 @@ function StoryScenes.flat(step, say: (any) -> (), stillOn: () -> boolean, r)
 					pistol:Destroy()
 				end
 				double = keep(held.scene, copyOfPlayer())
+				Faces.set(double, "fear")
 				if double then
 					-- (Barrel down the fingers, grip in the palm.)
 					inHand(double, "Right", heldPistol(), CFrame.new(0, -0.35, 0.05) * CFrame.Angles(math.rad(-90), 0, 0))
@@ -785,6 +790,7 @@ function StoryScenes.flat(step, say: (any) -> (), stillOn: () -> boolean, r)
 				kit.storeLighting(false)
 				inside = false
 				double = keep(held.scene, copyOfPlayer())
+				Faces.set(double, "fear")
 				local backDoor = place.standing - toKerb * 2 + forward * -1.5
 				if teddy then
 					local _, standing = heights(teddy)
@@ -1202,6 +1208,7 @@ function StoryScenes.frontStep(step, say: (any) -> (), stillOn: () -> boolean, r
 	saturday.double = double
 	if double then
 		keep(held.chapter, double)
+		Faces.set(double, "sombre")
 		Joints.bend(double, kit.SIT)
 		Joints.bend(double, { LeftShoulder = CFrame.Angles(math.rad(12), 0, 0), RightShoulder = CFrame.Angles(math.rad(12), 0, 0), LeftElbow = CFrame.Angles(math.rad(45), 0, 0), RightElbow = CFrame.Angles(math.rad(45), 0, 0) })
 		sitOn(double, top + along * 1.2, road)
@@ -1318,6 +1325,7 @@ function StoryScenes.rayDrives(step, say: (any) -> (), stillOn: () -> boolean, r
 	saturday.double = double
 	if double then
 		keep(held.chapter, double)
+		Faces.set(double, "sombre")
 		Joints.bend(double, kit.SIT)
 	end
 	local car = workspace:FindFirstChild(player.Name .. "_Car")
@@ -1555,10 +1563,13 @@ function StoryScenes.depot(step, say: (any) -> (), stillOn: () -> boolean, r)
 					return partPos(gunman, "RightHand", gunmanAt())
 				end, 46)
 			elseif shot == "slowYou" then
+				-- It lands on him.
+				Faces.set(double, "shock", 0.4)
 				Cutscene.look(function()
 					return kit.fromSeat(0.15, 2.8, -1.85)
 				end, youHead, 44)
 			elseif shot == "fire" then
+				Faces.set(double, "fear", 0.3)
 				-- From the kerb ahead, across the windscreen: the flashes, the
 				-- glass, Ray.
 				Cutscene.look(function()
@@ -1605,6 +1616,7 @@ function StoryScenes.depot(step, say: (any) -> (), stillOn: () -> boolean, r)
 					return hideEye
 				end, gunmanAt, 50)
 			elseif shot == "silence" then
+				Faces.set(double, "dazed", 1.5)
 				-- Up high: the cab, the man down on the pavement, the bus. Quiet.
 				-- Her window empty -- her mother's pulled her down.
 				if girl then
@@ -1803,7 +1815,53 @@ end
 
 -- ===== The end of chapter 10 =====
 
-local fallen = { double = nil :: Model?, props = nil :: { BasePart }?, facing = nil :: Vector3? }
+local fallen = { double = nil :: Model?, props = nil :: { BasePart }?, facing = nil :: Vector3?, exposure = nil :: number? }
+
+-- The light put back after the vertigo shot dimmed it (at the chapter's end,
+-- or if the scene's cut short).
+local function restoreExposure()
+	if fallen.exposure then
+		Lighting.ExposureCompensation = fallen.exposure
+		fallen.exposure = nil
+	end
+end
+table.insert(StoryScenes.onAbort, restoreExposure)
+
+-- Which way to put the camera for the vertigo shot, and how far back it can
+-- start: along the street if it can (where there's depth for the background
+-- to stretch), on whichever side has room for the camera -- the cab counts;
+-- he's often standing right by it -- and the longer view past him.
+local VERTIGO_ROOM = 10 -- studs the camera would like behind it at the start
+local function vertigoBack(head: Vector3, along: Vector3, ignore: { Instance }): (Vector3, number)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	local best, bestRoom, bestScore = -along, 0, -math.huge
+	for i = 0, 7 do
+		-- The street's ways first (0 and 4), then the diagonals and across.
+		local way = CFrame.Angles(0, math.rad(i * 45), 0):VectorToWorldSpace(along)
+		-- The camera sits on `way`'s side (checked at its height and a bit
+		-- lower, for a car roof); he's seen against the view the other way.
+		local room = VERTIGO_ROOM
+		for _, drop in { 0, 1.2 } do
+			local hit = workspace:Raycast(head - Vector3.new(0, drop, 0), way * VERTIGO_ROOM, params)
+			if hit then
+				room = math.min(room, hit.Distance - 0.6)
+			end
+		end
+		local viewHit = workspace:Raycast(head, -way * 300, params)
+		local view = if viewHit then viewHit.Distance else 300
+		-- Room for the camera first; then depth behind him (a wall or the
+		-- cab right behind him gives the stretch nothing to stretch); the
+		-- street's own line a tiebreak, if it has the depth.
+		local onStreet = if i % 4 == 0 and view > 40 then 30 else 0
+		local score = room * 30 + math.min(view, 150) * 0.5 + onStreet
+		if score > bestScore then
+			best, bestRoom, bestScore = way, room, score
+		end
+	end
+	return best, math.max(bestRoom, 2)
+end
 
 function StoryScenes.collapse(step, say: (any) -> (), stillOn: () -> boolean, r)
 	if StoryScenes.state.shotDown then
@@ -1882,11 +1940,14 @@ function StoryScenes.collapse(step, say: (any) -> (), stillOn: () -> boolean, r)
 					local sway = CFrame.Angles(math.noise(t * 0.7, 1) * 0.04, math.noise(t * 0.6, 2) * 0.04, math.noise(t * 0.5, 3) * 0.03)
 					return CFrame.lookAt(from, at) * sway
 				end, 50)
-			elseif shot == "shoulder" then
-				-- And his shoulder: dark, spreading, through his shirt. Seen
-				-- close, from in front of him; his face out of the top of the
-				-- shot, the cab beside him. (From his own eyes, the shoulder was
-				-- too close to read; from his left, the cab's in the way.)
+			elseif shot == "vertigo" then
+				-- The dolly zoom, the "Vertigo" shot: Hitchcock made it for
+				-- someone fainting -- "everything going far away" -- and that's
+				-- this. Him, the same size in the frame, while the street
+				-- behind him stretches away; the light going out of the shot
+				-- and the omen's three notes under it. His face goes from
+				-- fear to dazed as it goes. (The blood on his shoulder is seen
+				-- here too: it had a close-up of its own, cut as unneeded.)
 				for _, b in fallen.props or {} do
 					b:Destroy()
 				end
@@ -1913,21 +1974,51 @@ function StoryScenes.collapse(step, say: (any) -> (), stillOn: () -> boolean, r)
 						keep(held.chapter, stain(arm, Vector3.new(s.X * 0.8, 0.04, s.Z * 0.7), CFrame.new(0, s.Y / 2 + 0.01, -s.Z * 0.1)))
 					end
 				end
+				Faces.set(double, "fear", 0.3)
+				local car = workspace:FindFirstChild(player.Name .. "_Car")
+				local along = if car and car:IsA("Model") then car:GetPivot().LookVector else (fallen.facing or Vector3.zAxis)
+				along = along * Vector3.new(1, 0, 1)
+				along = if along.Magnitude > 0.1 then along.Unit else Vector3.zAxis
+				local head = partPos(double, "Head", eye())
+				local ignore: { Instance } = {}
+				for _, thing in { double, player.Character } do
+					if thing then
+						table.insert(ignore, thing)
+					end
+				end
+				local back, room = vertigoBack(head, along, ignore)
+				-- He turns to face it, like he's looking for somebody.
 				local root = kit.partOf(double, "HumanoidRootPart")
-				local base = if root then root.CFrame else CFrame.lookAt(eye(), eye() + (fallen.facing or Vector3.zAxis))
-				local shoulderAt = partPos(double, "LeftUpperArm", base.Position) + Vector3.new(0, 0.25, 0)
-				local towardChest = (partPos(double, "UpperTorso", shoulderAt) - shoulderAt) * Vector3.new(1, 0, 1)
-				local look = shoulderAt + towardChest * 0.35 - Vector3.new(0, 0.35, 0)
-				local from = look + base.LookVector * 3.4 + base.RightVector * 0.3 + Vector3.new(0, 0.1, 0)
-				Cutscene.shot(function(t)
-					local sway = CFrame.Angles(math.noise(t * 0.7, 4) * 0.02, math.noise(t * 0.6, 5) * 0.02, 0)
-					return CFrame.lookAt(from, look) * sway
-				end, 40)
+				if double and root then
+					double:PivotTo(CFrame.lookAt(root.Position, root.Position + back))
+				end
+				fallen.facing = back
+				local length = line.beat or 3
+				if not fallen.exposure then
+					fallen.exposure = Lighting.ExposureCompensation
+				end
+				TweenService:Create(Lighting, TweenInfo.new(length, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+					ExposureCompensation = fallen.exposure - 1.3,
+				}):Play()
+				player:SetAttribute("ThemeStinger", "omen:" .. math.floor(os.clock() * 10))
+				-- Head and chest, held at 3.4 studs tall in the frame: from a
+				-- long lens about 9 studs off to a wide one 2 studs off. (If
+				-- there isn't room that far back, it starts as far back as
+				-- there is: a wider lens, a smaller stretch.)
+				local HEIGHT = 3.4
+				local startFov = math.max(20, math.deg(2 * math.atan((HEIGHT / 2) / room)))
+				Cutscene.dollyZoom(function()
+					return partPos(double, "Head", head) - Vector3.new(0, 0.55, 0)
+				end, back, HEIGHT, startFov, 72, length)
+				task.delay(length * 0.45, function()
+					Faces.set(double, "dazed", length * 0.5)
+				end)
 			elseif shot == "fall" then
 				for _, b in fallen.props or {} do
 					b:Destroy()
 				end
 				fallen.props = nil
+				Faces.set(double, "fainting", 1)
 				-- Down from his own eyes again: not his head, or his hair.
 				if double then
 					for _, p in double:GetDescendants() do
@@ -1965,6 +2056,7 @@ end
 -- When a chapter ends on a scene still showing (chapter 10's black): the
 -- player back on their feet where they fell.
 table.insert(StoryScenes.onChapterEnd, function()
+	restoreExposure()
 	if fallen.double then
 		fallen.double:Destroy()
 		fallen.double = nil

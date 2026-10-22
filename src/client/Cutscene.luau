@@ -55,6 +55,9 @@ local playing = false
 local shotFn: ((number) -> CFrame)? = nil
 local shotStart = 0
 local shotFov = 60
+-- A shot whose field of view moves as it goes (a dolly zoom): the view at `t`
+-- seconds in. Otherwise the shot keeps `shotFov`.
+local shotFovFn: ((number) -> number)? = nil
 local connection: RBXScriptConnection? = nil
 
 function Cutscene.isPlaying(): boolean
@@ -89,11 +92,17 @@ function Cutscene.begin(subtle: boolean?)
 			camera.CameraType = Enum.CameraType.Scriptable
 		end
 		if shotFn then
-			local ok, cframe = pcall(shotFn, os.clock() - shotStart)
+			local t = os.clock() - shotStart
+			local ok, cframe = pcall(shotFn, t)
 			if ok and cframe then
 				camera.CFrame = cframe
 			end
-			camera.FieldOfView = shotFov
+			if shotFovFn then
+				local fovOk, fov = pcall(shotFovFn, t)
+				camera.FieldOfView = if fovOk and fov then fov else shotFov
+			else
+				camera.FieldOfView = shotFov
+			end
 		end
 	end)
 end
@@ -101,8 +110,32 @@ end
 -- Cuts to a new shot. `fn(t)` gives the camera at `t` seconds in.
 function Cutscene.shot(fn: (number) -> CFrame, fov: number?)
 	shotFn = fn
+	shotFovFn = nil
 	shotStart = os.clock()
 	shotFov = fov or 60
+end
+
+-- The dolly zoom (the "Vertigo" shot): the camera pushes in on `target` while
+-- the lens widens from `fromFov` to `toFov`, at just the rate that keeps a
+-- slice `height` studs tall around the target the same size on screen -- so
+-- he stays put and the world behind him stretches away. (Swap the two fovs
+-- and it pulls out while zooming in: the background rushes up instead.)
+-- `back` is the way from the target to the camera.
+function Cutscene.dollyZoom(target: () -> Vector3, back: Vector3, height: number, fromFov: number, toFov: number, duration: number)
+	local unit = if back.Magnitude > 0.01 then back.Unit else Vector3.zAxis
+	local function fovAt(t: number): number
+		local a = math.clamp(t / duration, 0, 1)
+		a = a * a * (3 - 2 * a)
+		return fromFov + (toFov - fromFov) * a
+	end
+	Cutscene.shot(function(t)
+		-- How far back the camera has to be for `height` to fill the same
+		-- share of the frame at this field of view.
+		local distance = (height / 2) / math.tan(math.rad(fovAt(t)) / 2)
+		local at = target()
+		return CFrame.lookAt(at + unit * distance, at)
+	end, fromFov)
+	shotFovFn = fovAt
 end
 
 -- A shot moving smoothly from one camera to another over `duration`, each
@@ -140,6 +173,7 @@ function Cutscene.finish()
 	end
 	playing = false
 	shotFn = nil
+	shotFovFn = nil
 	Cutscene.black(false, 0.5)
 	if connection then
 		connection:Disconnect()

@@ -152,9 +152,16 @@ Players.PlayerRemoving:Connect(function(player)
 	handled[player] = nil
 end)
 
--- Fired as part of CarSystems' space-bar exit sequence, so the car goes back
--- to properly parked/off (not left silently "on" with nobody in it).
-stopEngineRemote.OnServerEvent:Connect(function(player)
+-- Fired as part of CarSystems' exit sequence, so the car goes back to
+-- properly parked/off (not left silently "on" with nobody in it). `leaving`:
+-- they're getting out, so the seat lets go of them here, on the server --
+-- let go of only on their own screen, the server's weld could pull them
+-- straight back into the seat (seen once in chapter 10: the driver still
+-- sat in the cab after the depot scene put him behind it). `at`: where a
+-- cutscene puts them, moved there here too, in the same step: let go here
+-- but moved only on their own screen, they dropped out of the seat where
+-- it was -- through the cab's floor and the road (seen once, chapter 10).
+stopEngineRemote.OnServerEvent:Connect(function(player, leaving, at)
 	local car = carFor(player)
 	if not car then
 		return
@@ -162,5 +169,18 @@ stopEngineRemote.OnServerEvent:Connect(function(player)
 	local seat = car:FindFirstChild("DriveSeat") :: VehicleSeat?
 	if seat then
 		seat.Disabled = true
+		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if leaving == true and humanoid and seat.Occupant == humanoid then
+			local weld = seat:FindFirstChild("SeatWeld")
+			if weld then
+				weld:Destroy()
+			end
+			humanoid.Sit = false
+			-- Only somewhere by the cab: a scene putting them beside it.
+			local character = player.Character
+			if typeof(at) == "CFrame" and character and (at.Position - seat.Position).Magnitude < 40 then
+				character:PivotTo(at)
+			end
+		end
 	end
 end)

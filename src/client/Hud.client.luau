@@ -92,15 +92,22 @@ local function updateSaveState()
 end
 
 -- A bug test says so in the corner the whole time, so nobody mistakes it
--- for their real game.
+-- for their real game -- with the chapter it's on now (one chapter rolls on
+-- into the next, so not just the one it started at).
 if player:GetAttribute("GameMode") == "test" then
-	Screen.outlined(gui, 18, Color3.fromRGB(255, 120, 90), {
+	local label = Screen.outlined(gui, 18, Color3.fromRGB(255, 120, 90), {
 		AnchorPoint = Vector2.new(0, 0),
 		Position = UDim2.fromOffset(16, 10),
 		Size = UDim2.fromOffset(300, 22),
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = `BUG TEST · chapter {player:GetAttribute("TestChapter") or "?"} · not saved`,
 	})
+	local function refreshTestLabel()
+		local done = player:GetAttribute("StoryDone")
+		local chapter = if typeof(done) == "number" then done + 1 else player:GetAttribute("TestChapter") or "?"
+		label.Text = `BUG TEST · chapter {chapter} · not saved`
+	end
+	player:GetAttributeChangedSignal("StoryDone"):Connect(refreshTestLabel)
+	refreshTestLabel()
 end
 player:GetAttributeChangedSignal("SaveState"):Connect(updateSaveState)
 updateSaveState()

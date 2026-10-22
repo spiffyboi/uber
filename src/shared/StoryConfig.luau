@@ -1377,9 +1377,9 @@ StoryConfig.CHAPTERS = {
 				type = "scene",
 				scene = "collapse",
 				lines = {
-					{ shot = "hand", beat = 2.6, action = "lookHand" },
+					{ shot = "hand", beat = 2.6 },
 					{ shot = "hand", speaker = "YOU", text = "...That's not Teddy's." },
-					{ shot = "shoulder", beat = 2.6 },
+					{ shot = "vertigo", beat = 3.2 },
 					{ shot = "fall", beat = 2.2, action = "collapse" },
 					{ shot = "black", beat = 3.5 },
 				},

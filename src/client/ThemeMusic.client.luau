@@ -47,6 +47,9 @@ local STUDIO_LOCAL = {
 local UPLOADED_STINGERS = {
 	death = "rbxassetid://0",
 	omen = "rbxassetid://0",
+	-- "Rear-View", the cue for chapter 8's mirror visions (uploaded by the
+	-- user 2026-10-20; checked live: loads, 73.5 s).
+	vision = "rbxassetid://102323812048675",
 }
 local STUDIO_LOCAL_STINGERS = {
 	death = "rbxasset://sounds/uber/UberDeath_LastFare.wav",
@@ -57,6 +60,10 @@ local STUDIO_LOCAL_STINGERS = {
 local STINGER_DUCK = {
 	death = { factor = 0.12, hold = 20 },
 	omen = { factor = 0.12, hold = 22 },
+	-- The vision's cue plays right through (73.5 s, see StoryScenes.vision),
+	-- the score held down under it the whole time; "fade" (below) cuts it
+	-- short if the chapter's left.
+	vision = { factor = 0.1, hold = 74 },
 }
 local STINGER_VOLUME = 0.9
 
@@ -185,6 +192,27 @@ stingerGroup.Name = "ScoreStinger"
 stingerGroup.Volume = STINGER_VOLUME
 stingerGroup.Parent = SoundService
 
+-- Fetched now, so a stinger starts the moment it's asked for: fetched only
+-- when asked, the vision's cue took over 8 s to start (checked live) -- and
+-- a vision lasts about 12.
+task.spawn(function()
+	local preload = {}
+	for kind in STINGER_DUCK do
+		local id = resolveStinger(kind)
+		if id then
+			local s = Instance.new("Sound")
+			s.SoundId = id
+			table.insert(preload, s)
+		end
+	end
+	pcall(function()
+		game:GetService("ContentProvider"):PreloadAsync(preload)
+	end)
+	for _, s in preload do
+		s:Destroy()
+	end
+end)
+
 local stingerToken = 0
 local currentStinger: Sound? = nil
 local function fadeOutStinger(old: Sound)
@@ -240,13 +268,32 @@ local function playStinger(kind: string)
 	end)
 end
 
+-- "fade" (as "fade:<n>"): the stinger playing slips away over a few seconds,
+-- and the score comes back up -- for a cue longer than its moment (the
+-- vision's).
+local function fadeStinger()
+	stingerToken += 1
+	local sound = currentStinger
+	currentStinger = nil
+	if sound and sound.Parent then
+		TweenService:Create(sound, TweenInfo.new(4), { Volume = 0 }):Play()
+		task.delay(4.2, function()
+			sound:Destroy()
+		end)
+	end
+	stingerFactor = 1
+	applyGroupVolume(5)
+end
+
 local function onStingerAttribute()
 	local value = player:GetAttribute("ThemeStinger")
 	if typeof(value) ~= "string" then
 		return
 	end
 	local kind = string.match(value, "^(%a+)")
-	if kind then
+	if kind == "fade" then
+		fadeStinger()
+	elseif kind then
 		task.spawn(playStinger, kind)
 	end
 end

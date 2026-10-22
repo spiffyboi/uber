@@ -1,4 +1,4 @@
--- Inside Ironside Arms, the gun store on Ashby Ave: the room chapter 7's
+-- Inside Ironside Arms, the gun store on Ashby Ave: the room chapter 5's
 -- cutscene plays in (see StoryScenes). Like the cab office, it's a sealed
 -- set under the street (CityConfig.GUNSTORE_ORIGIN, right below the shop) --
 -- only ever seen through the cutscene's camera, never walked into.

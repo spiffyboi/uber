@@ -1,20 +1,20 @@
 -- The story's cutscenes, shot inside and around the player's own cab
 -- wherever it's parked (see Cutscene for the camera, bars and HUD):
 --
---   gunstore -- chapter 7, inside Ironside Arms (a set under the street,
+--   gunstore -- chapter 5, inside Ironside Arms (a set under the street,
 --               see GunStoreBuilder): Abe, the counter, a pistol on the
 --               glass.
---   stash    -- chapter 7, back in the cab: the pistol goes behind the
+--   stash    -- chapter 5, back in the cab: the pistol goes behind the
 --               driver's door panel.
---   holdup   -- chapter 8, by the pier: a gun at the back of the driver's
+--   holdup   -- chapter 5, by the pier: a gun at the back of the driver's
 --               head; close-ups on the two faces, cut against inserts of
 --               his hand creeping down to the door. One shot, the frame
 --               white, then black. (After the end of Dog Day Afternoon.)
 --   window   -- chapter 4, at the kerb on Quarry St: Dez, the lit window,
 --               and what he says about the man behind it.
---   funeral  -- chapter 9, Gil's funeral (a set under Larkin & Sons): his
+--   funeral  -- chapter 6, Gil's funeral (a set under Larkin & Sons): his
 --               daughter at the piano, the driver shaking, going down.
---   alley    -- chapter 9, mid-fare: a glance down a side street at Dez.
+--   alley    -- chapter 6, mid-fare: a glance down a side street at Dez.
 --   vision   -- chapter 8, mid-fare: the rear-view mirror, and in it, for a
 --               moment, someone who isn't there (Gil, Dez).
 --   farewell -- chapters 7 and 8, at the kerb: the last words, in the
@@ -22,11 +22,11 @@
 --               Quarry Houses, looking up) or `vanish` (Okafor, along the
 --               railings, and gone).
 --   dawn     -- the end of chapter 8: asleep at the wheel; morning.
---   robbery -- chapter 2, the dead end down by the wharf. Outside, the cab
+--   robbery -- chapter 1, the dead end down by the wharf. Outside, the cab
 --              under the lights as the engine dies; over Tommy's shoulder
 --              as the knife comes up to the driver's neck; on the driver;
 --              on Tommy; then outside again as he sprints off.
---   contact -- chapter 3, outside Voltage. Dez leans forward with the
+--   contact -- chapter 2, outside Voltage. Dez leans forward with the
 --              money, takes the player's phone, types his own number into
 --              it (close up on the screen), hands it back -- and the
 --              player's phone opens on Contacts with him in it. Then
@@ -48,6 +48,7 @@ local Cutscene = require(script.Parent.Cutscene)
 local CarSystems = require(script.Parent.CarSystems)
 local Screen = require(script.Parent.Screen)
 local Phone = require(script.Parent.Phone)
+local Faces = require(script.Parent.Faces)
 
 local StoryScenes = {}
 
@@ -543,7 +544,7 @@ local function doorShot()
 	end, 50)
 end
 
--- ===== The gun store (chapter 7) =====
+-- ===== The gun store (chapter 5) =====
 
 local Lighting = game:GetService("Lighting")
 local CityConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("CityConfig"))
@@ -692,7 +693,7 @@ function StoryScenes.stash(step, say: (any) -> (), stillOn: () -> boolean)
 	Cutscene.finish()
 end
 
--- ===== The hold-up (chapter 8) =====
+-- ===== The hold-up (chapter 5) =====
 -- Staged after the end of Sidney Lumet's Dog Day Afternoon (from the clip
 -- the user sent): tight close-ups on the two faces, cut back and forth, and
 -- in between them inserts of the driver's left hand easing off the wheel
@@ -973,7 +974,7 @@ function StoryScenes.holdup(step, say: (any) -> (), stillOn: () -> boolean)
 	setHidden(gil, false)
 	Cutscene.begin()
 	moodLight(true)
-	-- The pistol, in the door pocket where it went in chapter 7.
+	-- The pistol, in the door pocket where it went in chapter 5.
 	holdup.mine = holdup.mine or makePistol()
 	placePistol(holdup.mine :: BasePart, doorPocket())
 	local setReach, getReach, release = driverArm()
@@ -1264,7 +1265,7 @@ function StoryScenes.windowGunfire()
 	end)
 end
 
--- ===== The funeral (chapter 9) =====
+-- ===== The funeral (chapter 6) =====
 -- An evening service at Larkin & Sons (the set's under the chapel -- see
 -- ChapelBuilder). The driver at the back, alone in the last pew. The
 -- minister says a few words; Gil's daughter Nina walks up to the piano and
@@ -1392,6 +1393,8 @@ local function makeDouble(): Model?
 	local spot = inChapel(-3.4, SEAT_TOP + sat, ROWS[6])
 	double:PivotTo(CFrame.lookAt(spot, spot + Vector3.new(0, 0, 1)))
 	double:SetAttribute("Seat", double:GetPivot())
+	-- Not his avatar's frozen smirk, at a funeral (see Faces).
+	Faces.set(double, "sombre")
 	return double
 end
 
@@ -1635,6 +1638,7 @@ local function chapelShot(name: string, step, say)
 		end, 32)
 	elseif name == "driver" then
 		-- On him, in the back pew, from just in front and to his left.
+		Faces.set(double, "grief", 1.2)
 		chapelLook(function()
 			return doubleHead() + Vector3.new(0.7, 0.15, 2.2)
 		end, doubleHead, 40)
@@ -1845,7 +1849,7 @@ function StoryScenes.funeral(step, say: (any) -> (), stillOn: () -> boolean)
 	Cutscene.finish()
 end
 
--- ===== The side street (chapter 9) =====
+-- ===== The side street (chapter 6) =====
 -- Halfway through an ordinary fare, passing a side street: the camera --
 -- the driver's eyes -- slides off the road and down it. Dez, on his knees
 -- on the sidewalk under a lamp; a man behind him with a gun out. A flash.
@@ -2312,9 +2316,24 @@ end
 
 -- Mid-ride (chapter 8): the mirror, and in it for a moment someone who
 -- isn't there. The talk's held meanwhile, and the cab rolls to a stop
--- under it, as in any cutscene; then back to the road.
+-- under it, as in any cutscene; then back to the road. Under it, the
+-- vision's own cue ("Rear-View", see ThemeMusic). It starts with the first
+-- vision and plays all the way through (73 s) under the rest of the chapter
+-- -- the user: "let it play through the whole chapter after the first
+-- flashback". A later vision while it's still going leaves it be; one after
+-- it's finished starts it again.
+local visionCue = 0
+local function visionCueGoing(): boolean
+	-- (ThemeMusic's sound for it: there while it loads and plays, gone when
+	-- it ends.)
+	return game:GetService("SoundService"):FindFirstChild("Stinger_vision") ~= nil
+end
 function StoryScenes.vision(step, say: (any) -> (), stillOn: () -> boolean)
 	local who = backSeat()
+	if not visionCueGoing() then
+		visionCue += 1
+		player:SetAttribute("ThemeStinger", "vision:" .. visionCue)
+	end
 	Cutscene.begin()
 	cabLight(true)
 	grade(0.35)
@@ -2623,6 +2642,17 @@ StoryScenes.state = {} :: { [string]: any }
 -- Run when a chapter finishes with its last scene still on screen (chapter
 -- 10 ends on black): whatever puts the world back.
 StoryScenes.onChapterEnd = {} :: { () -> () }
+
+-- The vision's cue, if it's still going when the chapter's left or over:
+-- faded out, not left playing over whatever's next.
+local function fadeVisionCue()
+	if visionCueGoing() then
+		visionCue += 1
+		player:SetAttribute("ThemeStinger", "fade:" .. visionCue)
+	end
+end
+table.insert(StoryScenes.onAbort, fadeVisionCue)
+table.insert(StoryScenes.onChapterEnd, fadeVisionCue)
 
 function StoryScenes.chapterEnded()
 	for _, fn in StoryScenes.onChapterEnd do

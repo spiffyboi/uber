@@ -231,7 +231,7 @@ end)
 
 -- Bug test: pick a chapter.
 local test = page("Test")
--- Packed tighter than the main page, so all six chapters and Back fit on a
+-- Packed tighter than the main page, so all ten chapters and Back fit on a
 -- small screen.
 local layout = test:FindFirstChildOfClass("UIListLayout") :: UIListLayout
 layout.Padding = UDim.new(0, 4)

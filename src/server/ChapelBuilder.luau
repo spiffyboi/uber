@@ -1,4 +1,4 @@
--- Inside Larkin & Sons, the funeral chapel on Calloway: the room chapter 9's
+-- Inside Larkin & Sons, the funeral chapel on Calloway: the room chapter 6's
 -- cutscene plays in (see StoryScenes' funeral). Like the gun store, it's a
 -- sealed set under the street (CityConfig.CHAPEL_ORIGIN, right below the
 -- chapel), only ever seen through the cutscene's camera.

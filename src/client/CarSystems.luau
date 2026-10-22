@@ -79,10 +79,54 @@ local leaveCar: ((CFrame?) -> ())? = nil
 
 -- A cutscene putting the driver out of the cab, onto the ground at `at`
 -- (chapter 10: out of the passenger door). Doesn't yield.
+-- Out of the seat by force, for when the proper way out (`leave`, below)
+-- isn't there or didn't take.
+local function forceOut(at: CFrame)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not humanoid then
+		return
+	end
+	local seatPart = humanoid.SeatPart
+	stopEngineRemote:FireServer(true, at)
+	humanoid.Sit = false
+	local started = os.clock()
+	while humanoid.SeatPart and os.clock() - started < 1.5 do
+		task.wait()
+	end
+	local weld = seatPart and seatPart:FindFirstChild("SeatWeld")
+	if weld then
+		weld:Destroy()
+	end
+	character:PivotTo(at)
+end
+
+-- A cutscene putting the driver out of the cab at `at`. Checked a couple of
+-- seconds later: if they're somehow still in the seat, or not where they
+-- were put (dropped through the floor, say), they're put there again.
 function CarSystems.getOut(at: CFrame)
 	if leaveCar then
 		task.spawn(leaveCar, at)
+	else
+		warn("[CarSystems] getOut with no drive going; getting out directly")
+		task.spawn(forceOut, at)
 	end
+	task.delay(2.5, function()
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not humanoid or not root then
+			return
+		end
+		if humanoid.SeatPart then
+			warn("[CarSystems] still seated 2.5s after getOut; forcing it")
+			forceOut(at)
+		elseif (root.Position - at.Position).Magnitude > 6 then
+			warn("[CarSystems] not where getOut put them 2.5s later; putting them back")
+			root.AssemblyLinearVelocity = Vector3.zero
+			character:PivotTo(at)
+		end
+	end)
 end
 function CarSystems.setDriverVisible(visible: boolean)
 	for _, part in driverParts do
@@ -723,9 +767,9 @@ function CarSystems.start(car: Model, chassis: BasePart, seat: VehicleSeat, gpsS
 			return
 		end
 		exiting = true
-		if not seat.Disabled then
-			stopEngineRemote:FireServer()
-		end
+		-- The engine off, and the seat told to let go of them on the server
+		-- too -- and, from a cutscene, to put them at `at` (see CarSpawner).
+		stopEngineRemote:FireServer(true, at)
 		do
 			if view == "driver" and not at then
 				-- Turn toward the door first.
